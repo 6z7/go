@@ -13,9 +13,10 @@ import "unsafe"
 // library and should not be used directly.
 func runtime_Semacquire(s *uint32)
 
+//lifo是否后进先出
 // SemacquireMutex is like Semacquire, but for profiling contended Mutexes.
 // If lifo is true, queue waiter at the head of wait queue.
-// skipframes is the number of frames to omit during tracing, counting from
+// skipframes is the number of frruntime_SemacquireMutexames to omit during tracing, counting from
 // runtime_SemacquireMutex's caller.
 func runtime_SemacquireMutex(s *uint32, lifo bool, skipframes int)
 
@@ -57,11 +58,14 @@ func init() {
 	runtime_notifyListCheck(unsafe.Sizeof(n))
 }
 
+//是否能进行自旋,最多自旋转4次或其它条件不满足退出自旋
 // Active spinning runtime support.
 // runtime_canSpin reports whether spinning makes sense at the moment.
 func runtime_canSpin(i int) bool
 
+//尝试自旋30次
 // runtime_doSpin does active spinning.
 func runtime_doSpin()
 
+//获取当前时间(单位ns)
 func runtime_nanotime() int64

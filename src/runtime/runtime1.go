@@ -57,6 +57,7 @@ func argv_index(argv **byte, i int32) *byte {
 	return *(**byte)(add(unsafe.Pointer(argv), uintptr(i)*sys.PtrSize))
 }
 
+//启动时命令行参数处理
 func args(c int32, v **byte) {
 	argc = c
 	argv = v

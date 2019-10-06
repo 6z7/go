@@ -286,6 +286,7 @@ func getHugePageSize() uintptr {
 	return uintptr(v)
 }
 
+//启动时设置环境变了
 func osinit() {
 	ncpu = getproccount()
 	physHugePageSize = getHugePageSize()

@@ -384,6 +384,7 @@ type stack struct {
 	hi uintptr
 }
 
+//代表一个goroutine
 type g struct {
 	// Stack parameters.
 	// stack describes the actual stack memory: [stack.lo, stack.hi).
@@ -449,6 +450,7 @@ type g struct {
 	gcAssistBytes int64
 }
 
+//代表一个真正的内核OS线程
 type m struct {
 	g0      *g     // goroutine with scheduling stack
 	morebuf gobuf  // gobuf arg to morestack
@@ -520,6 +522,7 @@ type m struct {
 	mOS
 }
 
+//代表M调度的上下文
 type p struct {
 	id          int32
 	status      uint32 // one of pidle/prunning/...
@@ -601,6 +604,7 @@ type p struct {
 	pad cpu.CacheLinePad
 }
 
+//全局调度使用的数据结构
 type schedt struct {
 	// accessed atomically. keep at top to ensure alignment on 32-bit systems.
 	goidgen  uint64

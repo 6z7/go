@@ -117,6 +117,7 @@ func main() {
 	// It must not be used for anything else.
 	g.m.g0.racectx = 0
 
+	//执行栈的最大限制，64位1GB  32位250MB
 	// Max stack size is 1 GB on 64-bit, 250 MB on 32-bit.
 	// Using decimal instead of binary GB and MB because
 	// they look nicer in the stack overflow failure message.
@@ -129,6 +130,7 @@ func main() {
 	// Allow newproc to start new Ms.
 	mainStarted = true
 
+	//启动系统后台监控(定期GC,以及并发任务调度信息)
 	if GOARCH != "wasm" { // no threads on wasm yet, so no sysmon
 		systemstack(func() {
 			newm(sysmon, nil)
@@ -147,6 +149,7 @@ func main() {
 		throw("runtime.main not on m0")
 	}
 
+	//执行runtime包下所有的init初始化函数
 	doInit(&runtime_inittask) // must be before defer
 	if nanotime() == 0 {
 		throw("nanotime returning zero")
@@ -163,6 +166,7 @@ func main() {
 	// Record when the world started.
 	runtimeInitTime = nanotime()
 
+	//启动GC
 	gcenable()
 
 	main_init_done = make(chan bool)
@@ -187,6 +191,7 @@ func main() {
 		cgocall(_cgo_notify_runtime_init_done, nil)
 	}
 
+	//执行所有的用户包包括标准库中的init
 	doInit(&main_inittask)
 
 	close(main_init_done)
@@ -199,6 +204,8 @@ func main() {
 		// has a main, but it is not executed.
 		return
 	}
+
+	//用户逻辑入口 执行main.main
 	fn := main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
 	fn()
 	if raceenabled {
@@ -518,6 +525,7 @@ func cpuinit() {
 	arm64HasATOMICS = cpu.ARM64.HasATOMICS
 }
 
+//启动时sched的初始化
 // The bootstrap sequence is:
 //
 //	call osinit
@@ -534,6 +542,7 @@ func schedinit() {
 		_g_.racectx, raceprocctx0 = raceinit()
 	}
 
+	//最大可使用的系统线程 M数量
 	sched.maxmcount = 10000
 
 	tracebackinit()
@@ -550,16 +559,22 @@ func schedinit() {
 	msigsave(_g_.m)
 	initSigmask = _g_.m.sigmask
 
+	//命令行参数
 	goargs()
+	//环境变量
 	goenvs()
+	//调试相关的参数
 	parsedebugvars()
+	//垃圾回收初始化
 	gcinit()
 
 	sched.lastpoll = uint64(nanotime())
+	//通过cpu core和GOMAXPROCS环境变量确定P数量
 	procs := ncpu
 	if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
 		procs = n
 	}
+	//调整P数量
 	if procresize(procs) != nil {
 		throw("unknown runnable goroutine during bootstrap")
 	}
@@ -5154,20 +5169,24 @@ func sync_atomic_runtime_procUnpin() {
 //go:linkname sync_runtime_canSpin sync.runtime_canSpin
 //go:nosplit
 func sync_runtime_canSpin(i int) bool {
+	//sync.Mutex是有可能被多个goroutine竞争的，所以不应该大量自旋(消耗CPU)
 	// sync.Mutex is cooperative, so we are conservative with spinning.
 	// Spin only few times and only if running on a multicore machine and
 	// GOMAXPROCS>1 and there is at least one other running P and local runq is empty.
 	// As opposed to runtime mutex we don't do passive spinning here,
 	// because there can be work on global runq or on other Ps.
+	//  自旋次数>=4 ||是否多核机器||最大CPU核心数量<=
 	if i >= active_spin || ncpu <= 1 || gomaxprocs <= int32(sched.npidle+sched.nmspinning)+1 {
 		return false
 	}
+	//当前P还有其它等待运行的G
 	if p := getg().m.p.ptr(); !runqempty(p) {
 		return false
 	}
 	return true
 }
 
+//自旋30次
 //go:linkname sync_runtime_doSpin sync.runtime_doSpin
 //go:nosplit
 func sync_runtime_doSpin() {
