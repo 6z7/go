@@ -26,11 +26,16 @@ import (
 // available; a blocked Lock call excludes new readers from acquiring the
 // lock.
 type RWMutex struct {
-	w           Mutex  // held if there are pending writers
-	writerSem   uint32 // semaphore for writers to wait for completing readers
-	readerSem   uint32 // semaphore for readers to wait for completing writers
-	readerCount int32  // number of pending readers
-	readerWait  int32  // number of departing readers
+	//互斥锁
+	w Mutex // held if there are pending writers
+	//写锁信号量
+	writerSem uint32 // semaphore for writers to wait for completing readers
+	//读锁信号量
+	readerSem uint32 // semaphore for readers to wait for completing writers
+	//读锁计数器
+	readerCount int32 // number of pending readers
+	//获取写锁时需要等待的读锁释放数量
+	readerWait int32 // number of departing readers
 }
 
 const rwmutexMaxReaders = 1 << 30
@@ -75,6 +80,8 @@ func (rw *RWMutex) RUnlock() {
 }
 
 func (rw *RWMutex) rUnlockSlow(r int32) {
+	// r + 1 == 0表示直接执行RUnlock()
+	// r + 1 == -rwmutexMaxReaders表示执行Lock()再执行RUnlock()
 	if r+1 == 0 || r+1 == -rwmutexMaxReaders {
 		race.Enable()
 		throw("sync: RUnlock of unlocked RWMutex")
@@ -94,10 +101,13 @@ func (rw *RWMutex) Lock() {
 		_ = rw.w.state
 		race.Disable()
 	}
+	//获取写锁
 	// First, resolve competition with other writers.
 	rw.w.Lock()
+	// 将当前的readerCount置为负数，告诉RUnLock当前存在写锁等待
 	// Announce to readers there is a pending writer.
 	r := atomic.AddInt32(&rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders
+	// 等待读锁释放
 	// Wait for active readers.
 	if r != 0 && atomic.AddInt32(&rw.readerWait, r) != 0 {
 		runtime_SemacquireMutex(&rw.writerSem, false, 0)
@@ -124,6 +134,7 @@ func (rw *RWMutex) Unlock() {
 
 	// Announce to readers there is no active writer.
 	r := atomic.AddInt32(&rw.readerCount, rwmutexMaxReaders)
+	// 没执行Lock调用Unlock，抛出异常
 	if r >= rwmutexMaxReaders {
 		race.Enable()
 		throw("sync: Unlock of unlocked RWMutex")
@@ -149,3 +160,5 @@ type rlocker RWMutex
 
 func (r *rlocker) Lock()   { (*RWMutex)(r).RLock() }
 func (r *rlocker) Unlock() { (*RWMutex)(r).RUnlock() }
+
+//https://reading.developerlearning.cn/articles/sync/sync_rwmutex_source_code_analysis/
