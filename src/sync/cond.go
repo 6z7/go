@@ -19,12 +19,16 @@ import (
 //
 // A Cond must not be copied after first use.
 type Cond struct {
+	// noCopy可以嵌入到结构中，在第一次使用后不可复制,使用go vet作为检测使用
 	noCopy noCopy
 
+	// 根据需求初始化不同的锁，如*Mutex 和 *RWMutex
 	// L is held while observing or changing the condition
 	L Locker
 
-	notify  notifyList
+	// 通知列表,调用Wait()方法的goroutine会被放入list中,每次唤醒,从这里取出
+	notify notifyList
+	// 复制检查,检查cond实例是否被复制
 	checker copyChecker
 }
 
