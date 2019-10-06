@@ -154,6 +154,7 @@ func (m *Mutex) lockSlow() {
 		}
 		// 通过CAS来尝试设置锁的状态
 		// 这里可能是设置锁，也有可能是只设置为饥饿状态和等待数量
+		// 新获取锁的goroutine与释放的goroutine同时竞争
 		if atomic.CompareAndSwapInt32(&m.state, old, new) {
 			// 如果说old状态不是饥饿状态也不是被获取状态
 			// 那么代表当前goroutine已经通过CAS成功获取了锁
