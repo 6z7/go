@@ -321,6 +321,7 @@ type gobuf struct {
 	bp   uintptr // for GOEXPERIMENT=framepointer
 }
 
+//代表一个等待队列中的g
 // sudog represents a g in a wait list, such as for sending/receiving
 // on a channel.
 //
@@ -457,14 +458,15 @@ type m struct {
 	divmod  uint32 // div/mod denominator for arm - known to liblink
 
 	// Fields not known to debuggers.
-	procid        uint64       // for debuggers, but offset not hard-coded
-	gsignal       *g           // signal-handling g
-	goSigStack    gsignalStack // Go-allocated signal handling stack
-	sigmask       sigset       // storage for saved signal mask
-	tls           [6]uintptr   // thread-local storage (for x86 extern register)
-	mstartfn      func()
-	curg          *g       // current running goroutine
-	caughtsig     guintptr // goroutine running during fatal signal
+	procid     uint64       // for debuggers, but offset not hard-coded
+	gsignal    *g           // signal-handling g
+	goSigStack gsignalStack // Go-allocated signal handling stack
+	sigmask    sigset       // storage for saved signal mask
+	tls        [6]uintptr   // thread-local storage (for x86 extern register)
+	mstartfn   func()
+	curg       *g       // current running goroutine
+	caughtsig  guintptr // goroutine running during fatal signal
+	//执行P的指针
 	p             puintptr // attached p for executing go code (nil if not executing go code)
 	nextp         puintptr
 	oldp          puintptr // the p that was attached before executing a syscall

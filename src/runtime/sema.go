@@ -101,6 +101,7 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
 		throw("semacquire not on the G stack")
 	}
 
+	//能否获取一个信号量
 	// Easy case.
 	if cansemacquire(addr) {
 		return
@@ -199,6 +200,7 @@ func semroot(addr *uint32) *semaRoot {
 	return &semtable[(uintptr(unsafe.Pointer(addr))>>3)%semTabSize].root
 }
 
+//能否获取一个信号量
 func cansemacquire(addr *uint32) bool {
 	for {
 		v := atomic.Load(addr)

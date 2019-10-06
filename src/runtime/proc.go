@@ -323,6 +323,7 @@ func goready(gp *g, traceskip int) {
 	})
 }
 
+//代表一个等待队列中的g
 //go:nosplit
 func acquireSudog() *sudog {
 	// Delicate dance: the semaphore implementation calls
