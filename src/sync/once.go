@@ -10,15 +10,18 @@ import (
 
 // Once is an object that will perform exactly one action.
 type Once struct {
+	// 是否已执行
 	// done indicates whether the action has been performed.
 	// It is first in the struct because it is used in the hot path.
 	// The hot path is inlined at every call site.
 	// Placing done first allows more compact instructions on some architectures (amd64/x86),
 	// and fewer instructions (to calculate offset) on other architectures.
 	done uint32
-	m    Mutex
+	//互斥锁
+	m Mutex
 }
 
+// 即使调用多次，仅有第一次执行
 // Do calls the function f if and only if Do is being called for the
 // first time for this instance of Once. In other words, given
 // 	var once Once
