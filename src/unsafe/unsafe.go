@@ -10,10 +10,16 @@
 */
 package unsafe
 
+// ArbitraryType是int的一个别名，在Go中对ArbitraryType赋予特殊的意义,代表一个任意Go表达式类型。
 // ArbitraryType is here for the purposes of documentation only and is not actually
 // part of the unsafe package. It represents the type of an arbitrary Go expression.
 type ArbitraryType int
 
+//Pointer代表指向任意类型的指针
+//（1）任何类型的指针都可以被转化为Pointer
+//（2）Pointer可以被转化为任何类型的指针
+//（3）uintptr可以被转化为Pointer
+//（4）Pointer可以被转化为uintptr
 // Pointer represents a pointer to an arbitrary type. There are four special operations
 // available for type Pointer that are not available for other types:
 //	- A pointer value of any type can be converted to a Pointer.
