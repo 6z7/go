@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+//unix 实现FileInfo接口
 // A fileStat is the implementation of FileInfo returned by Stat and Lstat.
 type fileStat struct {
 	name    string

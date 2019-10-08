@@ -52,6 +52,7 @@ type file struct {
 	dirinfo     *dirInfo // nil unless directory being read
 	nonblock    bool     // whether we set nonblocking mode
 	stdoutOrErr bool     // whether this is stdout or stderr
+	//文件是否支持append模式
 	appendMode  bool     // whether file is opened for appending
 }
 

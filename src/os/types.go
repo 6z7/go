@@ -12,21 +12,29 @@ import (
 // Getpagesize returns the underlying system's memory page size.
 func Getpagesize() int { return syscall.Getpagesize() }
 
+//代表一个打开的文件
 // File represents an open file descriptor.
 type File struct {
 	*file // os specific
 }
 
+//文件信息
 // A FileInfo describes a file and is returned by Stat and Lstat.
 type FileInfo interface {
+	//文件名
 	Name() string       // base name of the file
+	//文件大小
 	Size() int64        // length in bytes for regular files; system-dependent for others
+	//文件权限
 	Mode() FileMode     // file mode bits
+	//修改时间
 	ModTime() time.Time // modification time
+	//是否是目录
 	IsDir() bool        // abbreviation for Mode().IsDir()
 	Sys() interface{}   // underlying data source (can return nil)
 }
 
+//文件权限  r:4、w:2、x:1
 // A FileMode represents a file's mode and permission bits.
 // The bits have the same definition on all systems, so that
 // information about files can be moved from one system

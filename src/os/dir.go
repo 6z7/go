@@ -4,6 +4,9 @@
 
 package os
 
+//获取file所在目录下的文件信息(字典排序)
+//n<=0 所有文件
+//n>0  前N个
 // Readdir reads the contents of the directory associated with file and
 // returns a slice of up to n FileInfo values, as would be returned
 // by Lstat, in directory order. Subsequent calls on the same file will yield
@@ -26,6 +29,9 @@ func (f *File) Readdir(n int) ([]FileInfo, error) {
 	return f.readdir(n)
 }
 
+//获取file所在目录下的所有文件名字(字典排序)
+//n<=0 所有文件名
+//n>0  前N个名
 // Readdirnames reads the contents of the directory associated with file
 // and returns a slice of up to n names of files in the directory,
 // in directory order. Subsequent calls on the same file will yield
