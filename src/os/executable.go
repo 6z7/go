@@ -4,6 +4,7 @@
 
 package os
 
+// 返回当前可执行文件的位置
 // Executable returns the path name for the executable that started
 // the current process. There is no guarantee that the path is still
 // pointing to the correct executable. If a symlink was used to start
