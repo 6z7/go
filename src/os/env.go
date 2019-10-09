@@ -124,16 +124,19 @@ func Setenv(key, value string) error {
 	return nil
 }
 
+//
 // Unsetenv unsets a single environment variable.
 func Unsetenv(key string) error {
 	return syscall.Unsetenv(key)
 }
 
+//清空环境变量
 // Clearenv deletes all environment variables.
 func Clearenv() {
 	syscall.Clearenv()
 }
 
+//返回所有的环境变量的副本
 // Environ returns a copy of strings representing the environment,
 // in the form "key=value".
 func Environ() []string {
