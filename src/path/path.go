@@ -52,6 +52,7 @@ func (b *lazybuf) string() string {
 	return string(b.buf[:b.w])
 }
 
+//返回等效的最短路径
 // Clean returns the shortest path name equivalent to path
 // by purely lexical processing. It applies the following rules
 // iteratively until no further processing can be done:
@@ -175,6 +176,9 @@ func Ext(path string) string {
 	return ""
 }
 
+//如果尾部有/，先移除/，返回最后一个元素
+//如果路径是空返回 .
+//如果路径都是/ 返回/
 // Base returns the last element of path.
 // Trailing slashes are removed before extracting the last element.
 // If the path is empty, Base returns ".".
