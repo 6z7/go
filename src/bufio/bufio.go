@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	//buf默认字节大小 4kb
 	defaultBufSize = 4096
 )
 
@@ -29,7 +30,9 @@ var (
 
 // Reader implements buffering for an io.Reader object.
 type Reader struct {
+	//buf缓存
 	buf          []byte
+	//实际reader
 	rd           io.Reader // reader provided by the client
 	r, w         int       // buf read and write positions
 	err          error
@@ -37,6 +40,7 @@ type Reader struct {
 	lastRuneSize int // size of last rune read for UnreadRune; -1 means invalid
 }
 
+//读取时buf最小字节数
 const minReadBufferSize = 16
 const maxConsecutiveEmptyReads = 100
 
@@ -542,9 +546,13 @@ func (b *Reader) writeBuf(w io.Writer) (int64, error) {
 // Flush method to guarantee all data has been forwarded to
 // the underlying io.Writer.
 type Writer struct {
+	//错误信息
 	err error
+	//字节缓存
 	buf []byte
+	//buf已经使用的字节数
 	n   int
+	//实际的writer
 	wr  io.Writer
 }
 
@@ -582,6 +590,7 @@ func (b *Writer) Reset(w io.Writer) {
 	b.wr = w
 }
 
+//刷新缓存数据到底层的writer,如果只写入了部分字节，buf要对应更新
 // Flush writes any buffered data to the underlying io.Writer.
 func (b *Writer) Flush() error {
 	if b.err != nil {
@@ -606,6 +615,7 @@ func (b *Writer) Flush() error {
 	return nil
 }
 
+//buf还剩多少字节可以用
 // Available returns how many bytes are unused in the buffer.
 func (b *Writer) Available() int { return len(b.buf) - b.n }
 
@@ -640,6 +650,7 @@ func (b *Writer) Write(p []byte) (nn int, err error) {
 	return nn, nil
 }
 
+//写一个字节
 // WriteByte writes a single byte.
 func (b *Writer) WriteByte(c byte) error {
 	if b.err != nil {
@@ -653,9 +664,11 @@ func (b *Writer) WriteByte(c byte) error {
 	return nil
 }
 
+//写入一个字符
 // WriteRune writes a single Unicode code point, returning
 // the number of bytes written and any error.
 func (b *Writer) WriteRune(r rune) (size int, err error) {
+	//单个字节
 	if r < utf8.RuneSelf {
 		err = b.WriteByte(byte(r))
 		if err != nil {
@@ -682,6 +695,9 @@ func (b *Writer) WriteRune(r rune) (size int, err error) {
 	return size, nil
 }
 
+//如果写入字符串的字节数>buf可用字节，则将buf填满后，刷新buf到底层writer
+//如果写入字符串的字节数<=buf可用字节,直接写入buf
+//返回实际写入的字节数
 // WriteString writes a string.
 // It returns the number of bytes written.
 // If the count is less than len(s), it also returns an error explaining
