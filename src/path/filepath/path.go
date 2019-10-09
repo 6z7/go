@@ -474,6 +474,7 @@ func Dir(path string) string {
 	return vol + dir
 }
 
+// 卷名
 // VolumeName returns leading volume name.
 // Given "C:\foo\bar" it returns "C:" on Windows.
 // Given "\\host\share\foo" it returns "\\host\share".
