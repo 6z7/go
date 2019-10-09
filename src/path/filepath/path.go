@@ -232,6 +232,7 @@ func EvalSymlinks(path string) (string, error) {
 	return evalSymlinks(path)
 }
 
+//获取绝对路径
 // Abs returns an absolute representation of path.
 // If the path is not absolute it will be joined with the current
 // working directory to turn it into an absolute path. The absolute
@@ -390,6 +391,7 @@ func walk(path string, info os.FileInfo, walkFn WalkFunc) error {
 	return nil
 }
 
+//遍历路径下的所有文件和目录
 // Walk walks the file tree rooted at root, calling walkFn for each file or
 // directory in the tree, including root. All errors that arise visiting files
 // and directories are filtered by walkFn. The files are walked in lexical
