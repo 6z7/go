@@ -335,6 +335,7 @@ func RuneLen(r rune) int {
 	return -1
 }
 
+// rune utf8编码转字节 返回写入的字节数
 // EncodeRune writes into p (which must be large enough) the UTF-8 encoding of the rune.
 // It returns the number of bytes written.
 func EncodeRune(p []byte, r rune) int {

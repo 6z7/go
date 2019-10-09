@@ -31,10 +31,11 @@ var (
 // Reader implements buffering for an io.Reader object.
 type Reader struct {
 	//buf缓存
-	buf          []byte
+	buf []byte
 	//实际reader
-	rd           io.Reader // reader provided by the client
-	r, w         int       // buf read and write positions
+	rd io.Reader // reader provided by the client
+	//r:当前读取位置  w:当前写入到的位置
+	r, w         int // buf read and write positions
 	err          error
 	lastByte     int // last byte read for UnreadByte; -1 means invalid
 	lastRuneSize int // size of last rune read for UnreadRune; -1 means invalid
@@ -42,6 +43,8 @@ type Reader struct {
 
 //读取时buf最小字节数
 const minReadBufferSize = 16
+
+//读取字节数为0的最大尝试次数
 const maxConsecutiveEmptyReads = 100
 
 // NewReaderSize returns a new Reader whose buffer has at least the specified
@@ -88,6 +91,7 @@ var errNegativeRead = errors.New("bufio: reader returned negative count from Rea
 
 // fill reads a new chunk into the buffer.
 func (b *Reader) fill() {
+	//将未使用数据移动到起始处
 	// Slide existing data to beginning.
 	if b.r > 0 {
 		copy(b.buf, b.buf[b.r:b.w])
@@ -99,6 +103,7 @@ func (b *Reader) fill() {
 		panic("bufio: tried to fill full buffer")
 	}
 
+	//读取数据从buf的w处开始写入
 	// Read new data: try a limited number of times.
 	for i := maxConsecutiveEmptyReads; i > 0; i-- {
 		n, err := b.rd.Read(b.buf[b.w:])
@@ -138,6 +143,7 @@ func (b *Reader) Peek(n int) ([]byte, error) {
 	b.lastByte = -1
 	b.lastRuneSize = -1
 
+	//n超出了范围&&buf未满 则填充buf
 	for b.w-b.r < n && b.w-b.r < len(b.buf) && b.err == nil {
 		b.fill() // b.w-b.r < len(b.buf) => buffer is not full
 	}
@@ -550,10 +556,10 @@ type Writer struct {
 	err error
 	//字节缓存
 	buf []byte
-	//buf已经使用的字节数
-	n   int
+	//buf当前边界
+	n int
 	//实际的writer
-	wr  io.Writer
+	wr io.Writer
 }
 
 // NewWriterSize returns a new Writer whose buffer has at least the specified
@@ -619,21 +625,26 @@ func (b *Writer) Flush() error {
 // Available returns how many bytes are unused in the buffer.
 func (b *Writer) Available() int { return len(b.buf) - b.n }
 
+//已经写入了多少字节
 // Buffered returns the number of bytes that have been written into the current buffer.
 func (b *Writer) Buffered() int { return b.n }
 
+// 将字节写入buf,返回写入的字节数
 // Write writes the contents of p into the buffer.
 // It returns the number of bytes written.
 // If nn < len(p), it also returns an error explaining
 // why the write is short.
 func (b *Writer) Write(p []byte) (nn int, err error) {
+	//大于buf可用字节时
 	for len(p) > b.Available() && b.err == nil {
 		var n int
+		//大于buf可用字节&&空buf，直接写入writer
 		if b.Buffered() == 0 {
 			// Large write, empty buffer.
 			// Write directly from p to avoid copy.
 			n, b.err = b.wr.Write(p)
 		} else {
+			//先填充满buf,在将buf刷新到writer
 			n = copy(b.buf[b.n:], p)
 			b.n += n
 			b.Flush()
@@ -680,16 +691,19 @@ func (b *Writer) WriteRune(r rune) (size int, err error) {
 		return 0, b.err
 	}
 	n := b.Available()
+	//可用buf<4字节
 	if n < utf8.UTFMax {
 		if b.Flush(); b.err != nil {
 			return 0, b.err
 		}
 		n = b.Available()
 		if n < utf8.UTFMax {
+			// 只有当buf很小时才会发生
 			// Can only happen if buffer is silly small.
 			return b.WriteString(string(r))
 		}
 	}
+	//rune utf8编码转字节 返回写入的字节数
 	size = utf8.EncodeRune(b.buf[b.n:], r)
 	b.n += size
 	return size, nil
@@ -720,6 +734,7 @@ func (b *Writer) WriteString(s string) (int, error) {
 	return nn, nil
 }
 
+// 从reader中读取内容到buf,如果buf写满则刷到writer
 // ReadFrom implements io.ReaderFrom. If the underlying writer
 // supports the ReadFrom method, and b has no buffered data yet,
 // this calls the underlying ReadFrom without buffering.
