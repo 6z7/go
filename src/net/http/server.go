@@ -2154,6 +2154,7 @@ func RedirectHandler(url string, code int) Handler {
 	return &redirectHandler{url, code}
 }
 
+//http请求多路复用器
 // ServeMux is an HTTP request multiplexer.
 // It matches the URL of each incoming request against a list of registered
 // patterns and calls the handler for the pattern that
@@ -2191,7 +2192,9 @@ func RedirectHandler(url string, code int) Handler {
 // .. elements or repeated slashes to an equivalent, cleaner URL.
 type ServeMux struct {
 	mu    sync.RWMutex
+	//pattern->muxEntry
 	m     map[string]muxEntry
+	//按pattern从从长到短排序muxEntry
 	es    []muxEntry // slice of entries sorted from longest to shortest.
 	hosts bool       // whether any patterns contain hostnames
 }
@@ -2417,6 +2420,7 @@ func (mux *ServeMux) Handle(pattern string, handler Handler) {
 	}
 }
 
+//将muxEntry添加到muxEntry[]的合适位置(pattern从长到短排序)
 func appendSorted(es []muxEntry, e muxEntry) []muxEntry {
 	n := len(es)
 	i := sort.Search(n, func(i int) bool {
@@ -2493,7 +2497,7 @@ type Server struct {
 	// The service names are defined in RFC 6335 and assigned by IANA.
 	// See net.Dial for details of the address format.
 	Addr string
-
+    //http.DefaultServeMux = nil时才使用
 	Handler Handler // handler to invoke, http.DefaultServeMux if nil
 
 	// TLSConfig optionally provides a TLS configuration for use
@@ -2578,12 +2582,14 @@ type Server struct {
 	ConnContext func(ctx context.Context, c net.Conn) context.Context
 
 	disableKeepAlives int32     // accessed atomically.
+	//非0值代表关闭
 	inShutdown        int32     // accessed atomically (non-zero means we're in Shutdown)
 	nextProtoOnce     sync.Once // guards setupHTTP2_* init
 	nextProtoErr      error     // result of http2.ConfigureServer if used
 
 	mu         sync.Mutex
 	listeners  map[*net.Listener]struct{}
+	//启动的conn
 	activeConn map[*conn]struct{}
 	doneChan   chan struct{}
 	onShutdown []func()
@@ -2905,6 +2911,7 @@ func (srv *Server) Serve(l net.Listener) error {
 				return ErrServerClosed
 			default:
 			}
+			//临时异常sleepy一段时间后重试
 			if ne, ok := e.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
 					tempDelay = 5 * time.Millisecond
