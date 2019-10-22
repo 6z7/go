@@ -383,7 +383,9 @@ type wincallbackcontext struct {
 // The bounds of the stack are exactly [lo, hi),
 // with no implicit data structures on either side.
 type stack struct {
+	//栈底
 	lo uintptr
+	//栈顶SP
 	hi uintptr
 }
 
@@ -464,6 +466,7 @@ type m struct {
 	gsignal    *g           // signal-handling g
 	goSigStack gsignalStack // Go-allocated signal handling stack
 	sigmask    sigset       // storage for saved signal mask
+	//thread local存储
 	tls        [6]uintptr   // thread-local storage (for x86 extern register)
 	mstartfn   func()
 	curg       *g       // current running goroutine
@@ -932,7 +935,9 @@ var (
 	// as they are not an external api.
 	// Set on startup in asm_{386,amd64,amd64p32}.s
 	processorVersionInfo uint32
+	//是否是intel处理器
 	isIntel              bool
+	//
 	lfenceBeforeRdtsc    bool
 
 	goarm                uint8 // set by cmd/link on arm systems

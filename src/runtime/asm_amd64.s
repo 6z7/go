@@ -95,12 +95,12 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
 
 	// create istack out of the given (operating system) stack.
 	// _cgo_init may update stackguard.
-	MOVQ	$runtime·g0(SB), DI
-	LEAQ	(-64*1024+104)(SP), BX
-	MOVQ	BX, g_stackguard0(DI)
+	MOVQ	$runtime·g0(SB), DI         //runtime2.g
+	LEAQ	(-64*1024+104)(SP), BX      //栈底位置
+	MOVQ	BX, g_stackguard0(DI)       //runtime2.g.stackguard0
 	MOVQ	BX, g_stackguard1(DI)
-	MOVQ	BX, (g_stack+stack_lo)(DI)
-	MOVQ	SP, (g_stack+stack_hi)(DI)
+	MOVQ	BX, (g_stack+stack_lo)(DI)    //记录栈底
+	MOVQ	SP, (g_stack+stack_hi)(DI)   //记录SP栈顶
 
 	// find out information about the processor we're on
 	MOVL	$0, AX
@@ -118,14 +118,14 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
 	JNE	notintel
 	CMPL	CX, $0x6C65746E  // "ntel"
 	JNE	notintel
-	MOVB	$1, runtime·isIntel(SB)
-	MOVB	$1, runtime·lfenceBeforeRdtsc(SB)
+	MOVB	$1, runtime·isIntel(SB)  //runtime2.lfenceBeforeRdtsc
+	MOVB	$1, runtime·lfenceBeforeRdtsc(SB) //runtime2.lfenceBeforeRdtsc
 notintel:
 
 	// Load EAX=1 cpuid flags
 	MOVL	$1, AX
 	CPUID
-	MOVL	AX, runtime·processorVersionInfo(SB)
+	MOVL	AX, runtime·processorVersionInfo(SB)  //runtime2.processorVersionInfo
 
 nocpuinfo:
 	// if there is an _cgo_init, call it.
@@ -180,11 +180,11 @@ needtls:
 	JMP ok
 #endif
 
-	LEAQ	runtime·m0+m_tls(SB), DI
-	CALL	runtime·settls(SB)
+	LEAQ	runtime·m0+m_tls(SB), DI  //runtime2.m.tls地址
+	CALL	runtime·settls(SB)    //sys_linux_amd64.s  runtime·settls  tls存储位置
 
 	// store through it, to make sure it works
-	get_tls(BX)
+	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, r
 	MOVQ	$0x123, g(BX)
 	MOVQ	runtime·m0+m_tls(SB), AX
 	CMPQ	AX, $0x123
@@ -193,7 +193,7 @@ needtls:
 ok:
 	// set the per-goroutine and per-mach "registers"
 	get_tls(BX)
-	LEAQ	runtime·g0(SB), CX
+	LEAQ	runtime·g0g((SB), CX
 	MOVQ	CX, g(BX)
 	LEAQ	runtime·m0(SB), AX
 
