@@ -93,9 +93,13 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
 	MOVQ	AX, 16(SP)
 	MOVQ	BX, 24(SP)
 
+     //go编译器为了方便汇编中访问struct的指定字段，会在编译过程中自动生成一个go_asm.h文件，
+     //可以通过#include "go_asm.h"语言来引用，该文件中会生成该包内全部struct的每个字段的偏移量宏定义
+     //与结构体大小的宏定义
+     //go tool compile -S -asmhdr dump.h *.go来导出相关文件编译过程中会生成的宏定义。
 	// create istack out of the given (operating system) stack.
 	// _cgo_init may update stackguard.
-	MOVQ	$runtime·g0(SB), DI         //runtime2.g
+	MOVQ	$runtime·g0(SB), DI         //prpc.go中g0
 	LEAQ	(-64*1024+104)(SP), BX      //栈底位置
 	MOVQ	BX, g_stackguard0(DI)       //runtime2.g.stackguard0
 	MOVQ	BX, g_stackguard1(DI)
@@ -180,21 +184,21 @@ needtls:
 	JMP ok
 #endif
 
-	LEAQ	runtime·m0+m_tls(SB), DI  //runtime2.m.tls地址
-	CALL	runtime·settls(SB)    //sys_linux_amd64.s  runtime·settls  tls存储位置
+	LEAQ	runtime·m0+m_tls(SB), DI  //runtime2.m.tls地址保存到DI
+	CALL	runtime·settls(SB)    //sys_linux_amd64.s  runtime·settls  保存到本地存储 参数来自DI
 
 	// store through it, to make sure it works
-	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, r
-	MOVQ	$0x123, g(BX)
-	MOVQ	runtime·m0+m_tls(SB), AX
+	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, BX
+	MOVQ	$0x123, g(BX)    //m0.tls[0]=0x123
+	MOVQ	runtime·m0+m_tls(SB), AX   //ax=m0.tls[0]
 	CMPQ	AX, $0x123
 	JEQ 2(PC)
 	CALL	runtime·abort(SB)
 ok:
 	// set the per-goroutine and per-mach "registers"
-	get_tls(BX)
-	LEAQ	runtime·g0g((SB), CX
-	MOVQ	CX, g(BX)
+	get_tls(BX)  //m0的tls
+	LEAQ	runtime·g0(SB), CX //cx保存g0的地址
+	MOVQ	CX, g(BX)    //m0.tls[0]保存g0的地址
 	LEAQ	runtime·m0(SB), AX
 
 	// save m->g0 = g0
