@@ -626,6 +626,7 @@ type schedt struct {
 	nmidle       int32    // number of idle m's waiting for work
 	nmidlelocked int32    // number of locked m's waiting for work
 	mnext        int64    // number of m's that have been created and next M ID
+	//最大os线程数量
 	maxmcount    int32    // maximum number of m's allowed (or die)
 	nmsys        int32    // number of system m's not counted for deadlock
 	nmfreed      int64    // cumulative number of freed m's
@@ -925,9 +926,9 @@ var (
 	allp       []*p  // len(allp) == gomaxprocs; may change at safe points, otherwise immutable
 	allpLock   mutex // Protects P-less reads of allp and all writes
 	gomaxprocs int32
-	ncpu       int32
+	ncpu       int32  //cpu核数
 	forcegc    forcegcstate
-	sched      schedt
+	sched      schedt   //调度信息
 	newprocs   int32
 
 	// Information about what cpu features are available.

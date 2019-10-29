@@ -13,6 +13,7 @@ func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
 }
 
 //指向当前goroutine
+//由编译器插入具体实现，从tls或专用寄存器中获取g
 // getg returns the pointer to the current g.
 // The compiler rewrites calls to this function into instructions
 // that fetch the g directly (from TLS or from the dedicated register).

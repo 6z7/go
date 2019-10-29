@@ -68,6 +68,7 @@ func futexwakeup(addr *uint32, cnt uint32) {
 	*(*int32)(unsafe.Pointer(uintptr(0x1006))) = 0x1006
 }
 
+//获取cpu核数
 func getproccount() int32 {
 	// This buffer is huge (8 kB) but we are on the system stack
 	// and there should be plenty of space (64 kB).
@@ -194,9 +195,11 @@ func sysargs(argc int32, argv **byte) {
 		n++
 	}
 
+	//argv与env由null分割
 	// skip NULL separator
 	n++
 
+	//环境变量
 	// now argv+n is auxv
 	auxv := (*[1 << 28]uintptr)(add(unsafe.Pointer(argv), uintptr(n)*sys.PtrSize))
 	if sysauxv(auxv[:]) != 0 {
@@ -286,9 +289,9 @@ func getHugePageSize() uintptr {
 	return uintptr(v)
 }
 
-//启动时设置环境变了
+
 func osinit() {
-	ncpu = getproccount()
+	ncpu = getproccount() //获取cpu核数
 	physHugePageSize = getHugePageSize()
 }
 

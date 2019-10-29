@@ -538,7 +538,7 @@ func cpuinit() {
 func schedinit() {
 	// raceinit must be the first call to race detector.
 	// In particular, it must be done before mallocinit below calls racemapshadow.
-	_g_ := getg()
+	_g_ := getg()  //获取g0
 	if raceenabled {
 		_g_.racectx, raceprocctx0 = raceinit()
 	}

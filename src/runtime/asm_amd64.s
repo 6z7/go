@@ -199,23 +199,23 @@ ok:
 	get_tls(BX)  //m0的tls
 	LEAQ	runtime·g0(SB), CX //cx保存g0的地址
 	MOVQ	CX, g(BX)    //m0.tls[0]保存g0的地址
-	LEAQ	runtime·m0(SB), AX
+	LEAQ	runtime·m0(SB), AX //将m0保存到AX
 
 	// save m->g0 = g0
-	MOVQ	CX, m_g0(AX)
+	MOVQ	CX, m_g0(AX) //将go保存到m0.g0
 	// save m0 to g0->m
-	MOVQ	AX, g_m(CX)
+	MOVQ	AX, g_m(CX) //g0->m=m0
 
 	CLD				// convention is D is always left cleared
-	CALL	runtime·check(SB)
+	CALL	runtime·check(SB)  //runtime1.go check
 
 	MOVL	16(SP), AX		// copy argc
-	MOVL	AX, 0(SP)
+	MOVL	AX, 0(SP)     //将argc放到栈顶
 	MOVQ	24(SP), AX		// copy argv
-	MOVQ	AX, 8(SP)
-	CALL	runtime·args(SB)
-	CALL	runtime·osinit(SB)
-	CALL	runtime·schedinit(SB)
+	MOVQ	AX, 8(SP)     //将argv放到sp+8处
+	CALL	runtime·args(SB)   //runtime1.go args  处理命令行参数与环境变量env
+	CALL	runtime·osinit(SB)  //os_linux.go  获取CPU核数与物理内存页大小
+	CALL	runtime·schedinit(SB) //proc.go
 
 	// create a new goroutine to start program
 	MOVQ	$runtime·mainPC(SB), AX		// entry
