@@ -488,6 +488,7 @@ type m struct {
 	printlock     int8
 	incgo         bool   // m is executing a cgo call
 	freeWait      uint32 // if == 0, safe to free g0 and delete m (atomic)
+	//随机数
 	fastrand      [2]uint32
 	needextram    bool
 	traceback     uint8
@@ -625,6 +626,7 @@ type schedt struct {
 	midle        muintptr // idle m's waiting for work
 	nmidle       int32    // number of idle m's waiting for work
 	nmidlelocked int32    // number of locked m's waiting for work
+	//下一个m id
 	mnext        int64    // number of m's that have been created and next M ID
 	//最大os线程数量
 	maxmcount    int32    // maximum number of m's allowed (or die)

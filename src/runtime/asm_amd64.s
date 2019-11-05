@@ -218,7 +218,7 @@ ok:
 	CALL	runtime·schedinit(SB) //proc.go
 
 	// create a new goroutine to start program
-	MOVQ	$runtime·mainPC(SB), AX		// entry
+	MOVQ	$runtime·mainPC(SB), AX		// entry  指向proc.go中的runtime.main入口
 	PUSHQ	AX
 	PUSHQ	$0			// arg size
 	CALL	runtime·newproc(SB)
@@ -236,7 +236,7 @@ ok:
 	MOVQ	$runtime·debugCallV1(SB), AX
 	RET
 
-DATA	runtime·mainPC+0(SB)/8,$runtime·main(SB)
+DATA	runtime·mainPC+0(SB)/8,$runtime·main(SB)   //proc.go
 GLOBL	runtime·mainPC(SB),RODATA,$8
 
 TEXT runtime·breakpoint(SB),NOSPLIT,$0-0
