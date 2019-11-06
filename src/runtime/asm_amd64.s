@@ -188,7 +188,7 @@ needtls:
 	CALL	runtime·settls(SB)    //sys_linux_amd64.s  runtime·settls  保存到本地存储 参数来自DI
 
 	// store through it, to make sure it works
-	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, BX
+	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, BX   BX中存储的时m.tls[0]的地址
 	MOVQ	$0x123, g(BX)    //m0.tls[0]=0x123
 	MOVQ	runtime·m0+m_tls(SB), AX   //ax=m0.tls[0]
 	CMPQ	AX, $0x123
@@ -196,15 +196,15 @@ needtls:
 	CALL	runtime·abort(SB)
 ok:
 	// set the per-goroutine and per-mach "registers"
-	get_tls(BX)  //m0的tls
-	LEAQ	runtime·g0(SB), CX //cx保存g0的地址
-	MOVQ	CX, g(BX)    //m0.tls[0]保存g0的地址
+	get_tls(BX)  //m0的tls[0]地址
+	LEAQ	runtime·g0(SB), CX //CX保存g0的地址
+	MOVQ	CX, g(BX)    //m0.tls[0]=&g0
 	LEAQ	runtime·m0(SB), AX //将m0保存到AX
 
 	// save m->g0 = g0
-	MOVQ	CX, m_g0(AX) //将go保存到m0.g0
+	MOVQ	CX, m_g0(AX) //将g0保存到m0.g0
 	// save m0 to g0->m
-	MOVQ	AX, g_m(CX) //g0->m=m0
+	MOVQ	AX, g_m(CX) //g0->m=m0   当前g由哪个m在执行
 
 	CLD				// convention is D is always left cleared
 	CALL	runtime·check(SB)  //runtime1.go check

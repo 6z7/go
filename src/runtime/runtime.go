@@ -46,7 +46,9 @@ func tickspersecond() int64 {
 	return r
 }
 
+//环境变量
 var envs []string
+//命令行参数
 var argslice []string
 
 //go:linkname syscall_runtime_envs syscall.runtime_envs

@@ -550,7 +550,7 @@ func schedinit() {
 	moduledataverify()
 	stackinit()
 	mallocinit()
-	mcommoninit(_g_.m)
+	mcommoninit(_g_.m)//初始化m0
 	cpuinit()       // must run before alginit
 	alginit()       // maps must not be used before this call
 	modulesinit()   // provides activeModules
@@ -571,9 +571,9 @@ func schedinit() {
 
 	sched.lastpoll = uint64(nanotime())
 	//通过cpu core和GOMAXPROCS环境变量确定P数量
-	procs := ncpu
+	procs := ncpu   //系统中有多少核，就创建和初始化多少个p结构体对象
 	if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
-		procs = n
+		procs = n  //如果环境变量指定了GOMAXPROCS，则创建指定数量的p
 	}
 	//调整P数量
 	if procresize(procs) != nil {
@@ -609,6 +609,7 @@ func dumpgstatus(gp *g) {
 	print("runtime:  g:  g=", _g_, ", goid=", _g_.goid, ",  g->atomicstatus=", readgstatus(_g_), "\n")
 }
 
+//检查已创建系统线程是否超过了数量限制（10000）
 func checkmcount() {
 	// sched lock is held
 	if mcount() > sched.maxmcount {
@@ -617,6 +618,7 @@ func checkmcount() {
 	}
 }
 
+//初始化m
 func mcommoninit(mp *m) {
 	_g_ := getg()
 
@@ -631,7 +633,7 @@ func mcommoninit(mp *m) {
 	}
 	mp.id = sched.mnext
 	sched.mnext++
-	checkmcount()
+	checkmcount()  //检查已创建系统线程是否超过了数量限制（10000）
 
 	mp.fastrand[0] = 1597334677 * uint32(mp.id)
 	mp.fastrand[1] = uint32(cputicks())
@@ -639,15 +641,18 @@ func mcommoninit(mp *m) {
 		mp.fastrand[1] = 1
 	}
 
+	//创建用于信号处理的gsignal，只是简单的从堆上分配一个g结构体对象,然后把栈设置好就返回了
 	mpreinit(mp)
 	if mp.gsignal != nil {
 		mp.gsignal.stackguard1 = mp.gsignal.stack.lo + _StackGuard
 	}
 
+	//所有m的链表
 	// Add to allm so garbage collector doesn't free g->m
 	// when it is just in a register or thread-local storage.
 	mp.alllink = allm
 
+	// 更新allm指向新的m
 	// NumCgoCall() iterates over allm w/o schedlock,
 	// so we need to publish it safely.
 	atomicstorep(unsafe.Pointer(&allm), unsafe.Pointer(mp))
@@ -4073,6 +4078,7 @@ func procresize(nprocs int32) *p {
 		unlock(&allpLock)
 	}
 
+	//初始化p
 	// initialize new P's
 	for i := old; i < nprocs; i++ {
 		pp := allp[i]
