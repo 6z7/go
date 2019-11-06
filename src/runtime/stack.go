@@ -68,6 +68,7 @@ const (
 	// and iOS because they do not use a separate stack.
 	_StackSystem = sys.GoosWindows*512*sys.PtrSize + sys.GoosPlan9*512 + sys.GoosDarwin*sys.GoarchArm*1024 + sys.GoosDarwin*sys.GoarchArm64*1024
 
+	//gorounte栈的最小大小2k
 	// The minimum size of stack used by Go code
 	_StackMin = 2048
 
@@ -1078,7 +1079,7 @@ func nilfunc() {
 func gostartcallfn(gobuf *gobuf, fv *funcval) {
 	var fn unsafe.Pointer
 	if fv != nil {
-		fn = unsafe.Pointer(fv.fn)
+		fn = unsafe.Pointer(fv.fn) //gorotine的入口地址，初始化时对应的是runtime.main
 	} else {
 		fn = unsafe.Pointer(funcPC(nilfunc))
 	}

@@ -1241,6 +1241,8 @@ func mstart1() {
 		throw("bad runtime·mstart")
 	}
 
+	//getcallerpc()获取mstart1执行完的返回地址
+	//getcallersp()获取调用mstart1时的栈顶地址
 	// Record the caller for use as the top of stack in mcall and
 	// for terminating the thread.
 	// We're never coming back to mstart1 after we call schedule,
@@ -3307,9 +3309,12 @@ func malg(stacksize int32) *g {
 // copied if a stack split occurred.
 //go:nosplit
 func newproc(siz int32, fn *funcval) {
+	//第一个参数
 	argp := add(unsafe.Pointer(&fn), sys.PtrSize)
 	gp := getg()
-	pc := getcallerpc()
+	pc := getcallerpc() //获取调用这的pc计数器地址
+	//systemstack的作用是切换到g0栈执行作为参数的函数
+	//我们这个场景现在本身就在g0栈，因此什么也不做，直接调用作为参数的函数
 	systemstack(func() {
 		newproc1(fn, argp, siz, gp, pc)
 	})
@@ -3338,10 +3343,12 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	}
 
 	_p_ := _g_.m.p.ptr()
-	newg := gfget(_p_)
+	newg := gfget(_p_) //从p的本地缓冲里获取一个没有使用的g，初始化时没有，返回nil
 	if newg == nil {
+		//new一个g结构体对象，然后从堆上为其分配栈
 		newg = malg(_StackMin)
-		casgstatus(newg, _Gidle, _Gdead)
+		casgstatus(newg, _Gidle, _Gdead)  //初始化g的状态为_Gdead
+		//放入全局变量allgs切片中
 		allgadd(newg) // publishes with a g->status of Gdead so GC scanner doesn't look at uninitialized stack.
 	}
 	if newg.stack.hi == 0 {
@@ -3352,6 +3359,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		throw("newproc1: new g is not Gdead")
 	}
 
+	//调整g的栈顶置针
 	totalSize := 4*sys.RegSize + uintptr(siz) + sys.MinFrameSize // extra space in case of reads slightly beyond frame
 	totalSize += -totalSize & (sys.SpAlign - 1)                  // align to spAlign
 	sp := newg.stack.hi - totalSize
@@ -3363,6 +3371,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		spArg += sys.MinFrameSize
 	}
 	if narg > 0 {
+		//把参数从执行newproc函数的栈（初始化时是g0栈）拷贝到新g的栈
 		memmove(unsafe.Pointer(spArg), argp, uintptr(narg))
 		// This is a stack-to-stack copy. If write barriers
 		// are enabled and the source stack is grey (the
@@ -3381,9 +3390,13 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		}
 	}
 
+	//把newg.sched结构体成员的所有成员设置为0
 	memclrNoHeapPointers(unsafe.Pointer(&newg.sched), unsafe.Sizeof(newg.sched))
+	//设置newg的sched成员，调度器需要依靠这些字段才能把goroutine调度到CPU上运行
 	newg.sched.sp = sp
 	newg.stktopsp = sp
+	//newg.sched.pc表示当newg被调度起来运行时从这个地址开始执行指令
+	//把pc设置成了goexit这个函数偏移1（sys.PCQuantum等于1）的位置
 	newg.sched.pc = funcPC(goexit) + sys.PCQuantum // +PCQuantum so that previous instruction is in same function
 	newg.sched.g = guintptr(unsafe.Pointer(newg))
 	gostartcallfn(&newg.sched, fn)
@@ -3397,6 +3410,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		atomic.Xadd(&sched.ngsys, +1)
 	}
 	newg.gcscanvalid = false
+	//设置g的状态为_Grunnable，表示这个g代表的goroutine可以运行了
 	casgstatus(newg, _Gdead, _Grunnable)
 
 	if _p_.goidcache == _p_.goidcacheend {
@@ -3415,6 +3429,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	if trace.enabled {
 		traceGoCreate(newg, newg.startpc)
 	}
+	//把newg放入_p_的运行队列，初始化的时候一定是p的本地运行队列，其它时候可能因为本地队列满了而放入全局队列
 	runqput(_p_, newg, true)
 
 	if atomic.Load(&sched.npidle) != 0 && atomic.Load(&sched.nmspinning) == 0 && mainStarted {
@@ -4041,12 +4056,13 @@ func (pp *p) destroy() {
 	pp.status = _Pdead
 }
 
+//调整P数量
 // Change number of processors. The world is stopped, sched is locked.
 // gcworkbufs are not being modified by either the GC or
 // the write barrier code.
 // Returns list of Ps with local work, they need to be scheduled by the caller.
 func procresize(nprocs int32) *p {
-	old := gomaxprocs
+	old := gomaxprocs     //初始是0
 	if old < 0 || nprocs <= 0 {
 		throw("procresize: invalid arg")
 	}
@@ -4061,6 +4077,7 @@ func procresize(nprocs int32) *p {
 	}
 	sched.procresizetime = now
 
+	//cpu数>P的数量则增加新建P
 	// Grow allp if necessary.
 	if nprocs > int32(len(allp)) {
 		// Synchronize with retake, which could be running
@@ -4078,7 +4095,7 @@ func procresize(nprocs int32) *p {
 		unlock(&allpLock)
 	}
 
-	//初始化p
+	//循环创建nprocs个p并完成基本初始化
 	// initialize new P's
 	for i := old; i < nprocs; i++ {
 		pp := allp[i]
@@ -4086,6 +4103,7 @@ func procresize(nprocs int32) *p {
 			pp = new(p)
 		}
 		pp.init(i)
+		//保持P到全局allp数组
 		atomicstorep(unsafe.Pointer(&allp[i]), unsafe.Pointer(pp))
 	}
 
@@ -4115,12 +4133,13 @@ func procresize(nprocs int32) *p {
 		p := allp[0]
 		p.m = 0
 		p.status = _Pidle
-		acquirep(p)
+		acquirep(p)   //将P与M关联起来
 		if trace.enabled {
 			traceGoStart()
 		}
 	}
 
+	//释放不在使用的P
 	// release resources from unused P's
 	for i := nprocs; i < old; i++ {
 		p := allp[i]
@@ -4138,12 +4157,12 @@ func procresize(nprocs int32) *p {
 	var runnablePs *p
 	for i := nprocs - 1; i >= 0; i-- {
 		p := allp[i]
-		if _g_.m.p.ptr() == p {
+		if _g_.m.p.ptr() == p { //allp[0]已经关联过m
 			continue
 		}
 		p.status = _Pidle
-		if runqempty(p) {
-			pidleput(p)
+		if runqempty(p) { //判断P的本地队列上是否有g
+			pidleput(p) //p加入sched.pidle指向的空闲链表
 		} else {
 			p.m.set(mget())
 			p.link.set(runnablePs)
@@ -4164,7 +4183,7 @@ func procresize(nprocs int32) *p {
 //go:yeswritebarrierrec
 func acquirep(_p_ *p) {
 	// Do the part that isn't allowed to have write barriers.
-	wirep(_p_)
+	wirep(_p_)  //将P与M关联起来
 
 	// Have p; write barriers now allowed.
 
@@ -4177,6 +4196,7 @@ func acquirep(_p_ *p) {
 	}
 }
 
+//将P与M关联起来
 // wirep is the first step of acquirep, which actually associates the
 // current M to _p_. This is broken out so we can disallow write
 // barriers for this part, since we don't yet have a P.
@@ -4781,6 +4801,7 @@ func pidleget() *p {
 	return _p_
 }
 
+//判断P的本地队列上是否有g
 // runqempty reports whether _p_ has no Gs on its local run queue.
 // It never returns true spuriously.
 func runqempty(_p_ *p) bool {

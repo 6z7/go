@@ -419,6 +419,7 @@ type g struct {
 	syscallpc      uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc
 	stktopsp       uintptr        // expected sp at top of stack, to check in traceback
 	param          unsafe.Pointer // passed parameter on wakeup
+	//g的状态
 	atomicstatus   uint32
 	stackLock      uint32 // sigprof/scang lock; TODO: fold in to atomicstatus
 	goid           int64
@@ -554,8 +555,11 @@ type m struct {
 
 //p结构体用于保存工作线程执行go代码时所必需的资源，比如goroutine的运行队列，内存分配用到的缓存等等
 type p struct {
+	//在allP数组中的索引
 	id          int32
+	//P状态
 	status      uint32 // one of pidle/prunning/...
+	//P链表,指向下一个P
 	link        puintptr
 	schedtick   uint32     // incremented on every scheduler call
 	syscalltick uint32     // incremented on every system call
@@ -668,6 +672,7 @@ type schedt struct {
 	npidle     uint32
 	nmspinning uint32 // See "Worker thread parking/unparking" comment in proc.go.
 
+	//g的全局队列
 	// Global runnable queue.
 	runq     gQueue
 	runqsize int32
@@ -958,6 +963,7 @@ var (
 	//所有P
 	allp       []*p  // len(allp) == gomaxprocs; may change at safe points, otherwise immutable
 	allpLock   mutex // Protects P-less reads of allp and all writes
+	//p的最大数量
 	gomaxprocs int32
 	ncpu       int32  //cpu核数
 	forcegc    forcegcstate

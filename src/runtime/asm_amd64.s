@@ -220,14 +220,15 @@ ok:
 	// create a new goroutine to start program
 	MOVQ	$runtime·mainPC(SB), AX		// entry  指向proc.go中的runtime.main入口
 	PUSHQ	AX
-	PUSHQ	$0			// arg size
-	CALL	runtime·newproc(SB)
+	PUSHQ	$0			// arg size  newproc的第一个参数入栈，该参数表示runtime.main函数需要的参数大小，因为runtime.main没有参数，所以这里是0
+	CALL	runtime·newproc(SB)  //proc.go
 	POPQ	AX
 	POPQ	AX
 
 	// start this M
 	CALL	runtime·mstart(SB)
 
+    //上面的mstart永远不应该返回的，如果返回了，一定是代码逻辑有问题，直接abort
 	CALL	runtime·abort(SB)	// mstart should never return
 	RET
 

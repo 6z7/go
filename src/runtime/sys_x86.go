@@ -14,12 +14,12 @@ import (
 // adjust Gobuf as if it executed a call to fn with context ctxt
 // and then did an immediate gosave.
 func gostartcall(buf *gobuf, fn, ctxt unsafe.Pointer) {
-	sp := buf.sp
+	sp := buf.sp //newg的栈顶，目前newg栈上只有fn函数的参数，sp指向的是fn的第一参数
 	if sys.RegSize > sys.PtrSize {
 		sp -= sys.PtrSize
 		*(*uintptr)(unsafe.Pointer(sp)) = 0
 	}
-	sp -= sys.PtrSize
+	sp -= sys.PtrSize   //为返回地址预留空间，
 	*(*uintptr)(unsafe.Pointer(sp)) = buf.pc
 	buf.sp = sp
 	buf.pc = uintptr(fn)
