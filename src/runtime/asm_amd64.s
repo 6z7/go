@@ -275,20 +275,28 @@ TEXT runtime·gosave(SB), NOSPLIT, $0-8
 // func gogo(buf *gobuf)
 // restore state from Gobuf; longjmp
 TEXT runtime·gogo(SB), NOSPLIT, $16-8
+    //buf = &gp.sched
 	MOVQ	buf+0(FP), BX		// gobuf
-	MOVQ	gobuf_g(BX), DX
+	MOVQ	gobuf_g(BX), DX    //DX=gp.sched.g
 	MOVQ	0(DX), CX		// make sure g != nil
 	get_tls(CX)
+	//把要运行的g的指针放入线程本地存储，这样后面的代码就可以通过线程本地存储
+    //获取到当前正在执行的goroutine的g结构体对象，从而找到与之关联的m和p
 	MOVQ	DX, g(CX)
-	MOVQ	gobuf_sp(BX), SP	// restore SP
+	MOVQ	gobuf_sp(BX), SP	// restore SP      把CPU的SP寄存器设置为sched.sp，完成了栈的切换
+	//下面三条同样是恢复调度上下文到CPU相关寄存器
 	MOVQ	gobuf_ret(BX), AX
 	MOVQ	gobuf_ctxt(BX), DX
 	MOVQ	gobuf_bp(BX), BP
+	//清空sched的值，因为我们已把相关值放入CPU对应的寄存器了，不再需要，这样做可以少gc的工作量
 	MOVQ	$0, gobuf_sp(BX)	// clear to help garbage collector
 	MOVQ	$0, gobuf_ret(BX)
 	MOVQ	$0, gobuf_ctxt(BX)
 	MOVQ	$0, gobuf_bp(BX)
+	//把sched.pc值放入BX寄存器
 	MOVQ	gobuf_pc(BX), BX
+	//JMP把BX寄存器的包含的地址值放入CPU的IP寄存器，于是，CPU跳转到该地址继续执行指令，
+	//第一次执行实际跳转到runtime.main
 	JMP	BX
 
 // func mcall(fn func(*g))
@@ -298,6 +306,7 @@ TEXT runtime·gogo(SB), NOSPLIT, $16-8
 TEXT runtime·mcall(SB), NOSPLIT, $0-8
 	MOVQ	fn+0(FP), DI
 
+    //保存调度信息到当前g.sched中
 	get_tls(CX)
 	MOVQ	g(CX), AX	// save state in g->sched
 	MOVQ	0(SP), BX	// caller's PC
@@ -307,17 +316,21 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-8
 	MOVQ	AX, (g_sched+gobuf_g)(AX)
 	MOVQ	BP, (g_sched+gobuf_bp)(AX)
 
+     //找到g0的指针
 	// switch to m->g0 & its stack, call fn
 	MOVQ	g(CX), BX
 	MOVQ	g_m(BX), BX
 	MOVQ	m_g0(BX), SI
+	//此刻，SI = g0， AX = g，所以这里在判断g 是否是 g0，如果g == g0则一定是哪里代码写错了
 	CMPQ	SI, AX	// if g == m->g0 call badmcall
 	JNE	3(PC)
 	MOVQ	$runtime·badmcall(SB), AX
 	JMP	AX
+	//把g0的地址设置到线程本地存储之中
 	MOVQ	SI, g(CX)	// g = m->g0
+	//恢复g0的栈顶指针到CPU的rsp积存，这一条指令完成了栈的切换，从g的栈切换到了g0的栈
 	MOVQ	(g_sched+gobuf_sp)(SI), SP	// sp = m->g0->sched.sp
-	PUSHQ	AX
+	PUSHQ	AX  //当前的g
 	MOVQ	DI, DX
 	MOVQ	0(DI), DI
 	CALL	DI
@@ -1378,7 +1391,7 @@ TEXT _cgo_topofstack(SB),NOSPLIT,$0
 // returns to goexit+PCQuantum.
 TEXT runtime·goexit(SB),NOSPLIT,$0-0
 	BYTE	$0x90	// NOP
-	CALL	runtime·goexit1(SB)	// does not return
+	CALL	runtime·goexit1(SB)	// does not return   //proc.go
 	// traceback from goexit1 must hit code range of goexit
 	BYTE	$0x90	// NOP
 

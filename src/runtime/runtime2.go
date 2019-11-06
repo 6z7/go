@@ -497,6 +497,7 @@ type m struct {
 	mallocing     int32
 	throwing      int32
 	preemptoff    string // if != "", keep curg running on this m
+	//m上获取lock的数量
 	locks         int32
 	dying         int32
 	profilehz     int32
@@ -561,6 +562,7 @@ type p struct {
 	status      uint32 // one of pidle/prunning/...
 	//P链表,指向下一个P
 	link        puintptr
+	//p被调度次数
 	schedtick   uint32     // incremented on every scheduler call
 	syscalltick uint32     // incremented on every system call
 	sysmontick  sysmontick // last tick observed by sysmon
@@ -581,6 +583,7 @@ type p struct {
 	runqhead uint32  // 队列头
 	runqtail uint32  // 队列尾
 	runq     [256]guintptr  //使用数组实现的循环队列
+	//被优先调度的g
 	// runnext, if non-nil, is a runnable G that was ready'd by
 	// the current G and should be run next instead of what's in
 	// runq if there's time remaining in the running G's time
@@ -670,11 +673,13 @@ type schedt struct {
 	pidle      puintptr // idle p's
 	// 空闲的p结构体对象的数量
 	npidle     uint32
+	//处于spinning状态的m数量
 	nmspinning uint32 // See "Worker thread parking/unparking" comment in proc.go.
 
 	//g的全局队列
 	// Global runnable queue.
 	runq     gQueue
+	//全局队列中g的数量
 	runqsize int32
 
 	// disable controls selective disabling of the scheduler.

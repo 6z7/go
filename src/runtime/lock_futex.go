@@ -128,6 +128,7 @@ func noteclear(n *note) {
 }
 
 func notewakeup(n *note) {
+	//设置n.key = 1, 被唤醒的线程通过查看该值是否等于1来确定是被其它线程唤醒还是意外从睡眠中苏醒
 	old := atomic.Xchg(key32(&n.key), 1)
 	if old != 0 {
 		print("notewakeup - double wakeup (", old, ")\n")
@@ -141,11 +142,12 @@ func notesleep(n *note) {
 	if gp != gp.m.g0 {
 		throw("notesleep not on g0")
 	}
-	ns := int64(-1)
+	ns := int64(-1)  //超时时间设置为-1，表示无限期等待
 	if *cgo_yield != nil {
 		// Sleep for an arbitrary-but-moderate interval to poll libc interceptors.
 		ns = 10e6
 	}
+	//使用循环，保证不是意外被唤醒
 	for atomic.Load(key32(&n.key)) == 0 {
 		gp.m.blocked = true
 		futexsleep(key32(&n.key), 0, ns)
