@@ -25,6 +25,7 @@ func throw(string) // provided by runtime
 //互斥锁
 type Mutex struct {
 	//互斥锁状态
+	//向移动3位置表示等待获取锁的goroutine数量
 	state int32
 	//信号量
 	sema uint32
@@ -37,9 +38,9 @@ type Locker interface {
 }
 
 const (
-	//已获取锁2^0
+	//已获取锁1
 	mutexLocked = 1 << iota // mutex is locked
-	//已释放锁2^1
+	//已释放锁2
 	mutexWoken
 	//饥饿模式(排在前边的go协程一直未获取到锁)2^2
 	mutexStarving
@@ -47,6 +48,17 @@ const (
 	mutexWaiterShift = iota
 
 	//互斥锁2种模式：正常模式，饥饿模式
+	//正常模式下waiter按照FIFO顺序排队，但是唤醒时会与新的goroutine竞争mutex,
+	//新的goroutine应为已经在CPU上运行会比新唤醒的goroutine更有优势获取到mutex,
+	//在这种情况下，如果waiter等待获取mutex超过1ms，则将该waiter放到队列的前面，同时锁状态切换到饥饿模式。
+	//
+	// 饥饿模式下，mutex的所有权直接从unlock goruntine交到队列头部的waiter。新的goroutine直接排到队列的尾部，
+	//不会尝试获mutex。
+	//
+	// 如果waiter获取到mutex的后满足以下情况，则恢复到正常模式：
+	// 1.队列中最后一个waiter
+	// 2.获取Mutex的时间小于1ms
+	//
 	// Mutex fairness.
 	//
 	// Mutex can be in 2 modes of operations: normal and starvation.
@@ -91,14 +103,20 @@ func (m *Mutex) Lock() {
 }
 
 func (m *Mutex) lockSlow() {
-	var waitStartTime int64 //开始等待的时间
-	starving := false       //是否进入了饥饿模式
-	awoke := false          //是否唤醒了当前的goroutine
-	iter := 0               //自旋次数
-	old := m.state          //当前状态
+	//开始等待的时间
+	var waitStartTime int64
+	//是否进入了饥饿模式
+	starving := false
+	//是否唤醒了当前的goroutine
+	awoke := false
+	//自旋次数
+	iter := 0
+	//当前状态
+	old := m.state
 	for {
-		/// 如果是饥饿情况，无需自旋，因为锁会直接交给队列头部的goroutine
-		//  如果锁是被获取状态，并且满足自旋条件，那么就自旋等锁
+		//
+		// 如果是饥饿情况，无需自旋，因为锁会直接交给队列头部的goroutine
+		// 如果锁已经被其它goroutine获取并且满足自旋条件，那么就自旋等锁
 		// Don't spin in starvation mode, ownership is handed off to waiters
 		// so we won't be able to acquire the mutex anyway.
 		if old&(mutexLocked|mutexStarving) == mutexLocked && runtime_canSpin(iter) {
@@ -174,7 +192,7 @@ func (m *Mutex) lockSlow() {
 			// 如果是被唤醒的等待锁的goroutine，就放到队列头部
 			runtime_SemacquireMutex(&m.sema, queueLifo, 1)
 
-			//获取到信号量进入下面的步骤
+			//获取到信号量进入下面的步骤(唤醒了当前的waiter)
 
 			//等待时间超过阀值进入饥饿模式
 			starving = starving || runtime_nanotime()-waitStartTime > starvationThresholdNs
@@ -213,6 +231,7 @@ func (m *Mutex) lockSlow() {
 			awoke = true
 			iter = 0
 		} else {
+			//mutex状态已经被修改，刷新一遍重新计算
 			old = m.state
 		}
 	}
@@ -237,6 +256,7 @@ func (m *Mutex) Unlock() {
 	// 这里获取到锁的状态，然后将状态减去被获取的状态(也就是解锁)，称为new(期望)状态
 	// Fast path: drop lock bit.
 	new := atomic.AddInt32(&m.state, -mutexLocked)
+	//
 	if new != 0 {
 		// Outlined slow path to allow inlining the fast path.
 		// To hide unlockSlow during tracing we skip one extra frame when tracing GoUnblock.
