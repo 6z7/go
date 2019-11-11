@@ -120,8 +120,8 @@ func (m *Mutex) lockSlow() {
 	old := m.state
 	for {
 		//
-		// 如果是饥饿情况，无需自旋，因为锁会直接交给队列头部的goroutine
-		// 如果锁已经被其它goroutine获取并且满足自旋条件，那么就自旋等锁
+		// 如果是饥饿情况，无需自旋
+		// 如果其它g获取到了锁，则当前g尝试自旋获取锁
 		// Don't spin in starvation mode, ownership is handed off to waiters
 		// so we won't be able to acquire the mutex anyway.
 		if old&(mutexLocked|mutexStarving) == mutexLocked && runtime_canSpin(iter) {
@@ -142,17 +142,19 @@ func (m *Mutex) lockSlow() {
 			old = m.state
 			continue
 		}
+		//自选完了还未获取到锁，则开始竞争锁
+
 		//复制一份最新锁状态，用来存放期望的锁状态
 		new := old
-		//非饥饿模式下期望获取锁直接排队
+
 		// Don't try to acquire starving mutex, new arriving goroutines must queue.
 		if old&mutexStarving == 0 {
+			//非饥饿模式下，可以抢锁
 			new |= mutexLocked
 		}
-		// 如果锁是被获取状态，或者饥饿状态
-		// 就把期望状态中的等待goroutine的数量+1
-		// 唤醒后操作的不会触发这步
+
 		if old&(mutexLocked|mutexStarving) != 0 {
+			//其它g已获取到锁或处于饥饿模式下，则会阻塞当前g，等待g的数量+1
 			new += 1 << mutexWaiterShift
 		}
 		// The current goroutine switches mutex to starvation mode.
@@ -165,8 +167,8 @@ func (m *Mutex) lockSlow() {
 		if starving && old&mutexLocked != 0 {
 			new |= mutexStarving
 		}
+		//当前g被唤醒
 		if awoke {
-			//一定是被Unlock唤醒的
 			// The goroutine has been woken from sleep,
 			// so we need to reset the flag in either case.
 			if new&mutexWoken == 0 {
@@ -176,8 +178,6 @@ func (m *Mutex) lockSlow() {
 			new &^= mutexWoken
 		}
 		// 通过CAS来尝试设置锁的状态
-		// 这里可能是设置锁，也有可能是只设置为饥饿状态和等待数量
-		// 新获取锁的goroutine与释放的goroutine同时竞争
 		if atomic.CompareAndSwapInt32(&m.state, old, new) {
 			// 如果说old状态不是饥饿状态也不是被获取状态
 			// 那么代表当前goroutine已经通过自旋成功获取了锁
