@@ -23,6 +23,11 @@ func throw(string) // provided by runtime
 //
 // A Mutex must not be copied after first use.
 //互斥锁
+//g通过竞争获取mutex状态的修改所有权，所有g阻塞在信号量的队列上，
+//当unlock后排在队列头部的g会与新的g竞争所有权(即唤醒的g不一定能够获取到mutex的所有权)，
+//当g被唤醒后如果等待时间大于1ms,则mutex状态会被标记为饥饿状态,
+//如果当前获取锁的g处于饥饿状态,则新的g不会自旋,并将当前g放到队列的首位，下次唤醒直接执行该g
+//
 type Mutex struct {
 	//互斥锁状态
 	//向移动3位置表示等待获取锁的goroutine数量
@@ -175,7 +180,7 @@ func (m *Mutex) lockSlow() {
 		// 新获取锁的goroutine与释放的goroutine同时竞争
 		if atomic.CompareAndSwapInt32(&m.state, old, new) {
 			// 如果说old状态不是饥饿状态也不是被获取状态
-			// 那么代表当前goroutine已经通过CAS成功获取了锁
+			// 那么代表当前goroutine已经通过自旋成功获取了锁
 			if old&(mutexLocked|mutexStarving) == 0 {
 				break // locked the mutex with CAS
 			}
@@ -206,6 +211,7 @@ func (m *Mutex) lockSlow() {
 				// ownership was handed off to us but mutex is in somewhat
 				// inconsistent state: mutexLocked is not set and we are still
 				// accounted as waiter. Fix that.
+				//饥饿状态下不会有其它G获取到了锁或被唤醒
 				if old&(mutexLocked|mutexWoken) != 0 || old>>mutexWaiterShift == 0 {
 					throw("sync: inconsistent mutex state")
 				}
@@ -256,7 +262,7 @@ func (m *Mutex) Unlock() {
 	// 这里获取到锁的状态，然后将状态减去被获取的状态(也就是解锁)，称为new(期望)状态
 	// Fast path: drop lock bit.
 	new := atomic.AddInt32(&m.state, -mutexLocked)
-	//
+	//有其它g需要唤醒
 	if new != 0 {
 		// Outlined slow path to allow inlining the fast path.
 		// To hide unlockSlow during tracing we skip one extra frame when tracing GoUnblock.
@@ -312,3 +318,4 @@ func (m *Mutex) unlockSlow(new int32) {
 }
 
 //https://purewhite.io/2019/03/28/golang-mutex-source/
+
