@@ -442,12 +442,14 @@ func (root *semaRoot) rotateRight(y *sudog) {
 	}
 }
 
+// 实现sync.Cond的notifyList
 // notifyList is a ticket-based notification list used to implement sync.Cond.
 //
 // It must be kept in sync with the sync package.
 type notifyList struct {
 	// wait is the ticket number of the next waiter. It is atomically
 	// incremented outside the lock.
+	//等待的g数量
 	wait uint32
 
 	// notify is the ticket number of the next waiter to be notified. It can

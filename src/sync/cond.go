@@ -32,6 +32,7 @@ type Cond struct {
 	checker copyChecker
 }
 
+// 创建一个Cond
 // NewCond returns a new Cond with Locker l.
 func NewCond(l Locker) *Cond {
 	return &Cond{L: l}
