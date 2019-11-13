@@ -146,6 +146,9 @@ const (
 	_Pdead
 )
 
+// 互斥锁
+// 先尝试自旋获取锁，未获取到则在通过系统调用挂起g等待唤醒，
+//
 // Mutual exclusion locks.  In the uncontended case,
 // as fast as spin locks (just a few user-level instructions),
 // but on the contention path they sleep in the kernel.
@@ -154,6 +157,7 @@ type mutex struct {
 	// Futex-based impl treats it as uint32 key,
 	// while sema-based impl as M* waitm.
 	// Used to be a union, but unions break precise GC.
+    //futex阻塞在该地址上
 	key uintptr
 }
 
@@ -327,7 +331,7 @@ type gobuf struct {
 	bp   uintptr // for GOEXPERIMENT=framepointer
 }
 
-//代表一个等待队列中的g
+//代表一个挂起的g
 // sudog represents a g in a wait list, such as for sending/receiving
 // on a channel.
 //
@@ -342,7 +346,7 @@ type sudog struct {
 	// The following fields are protected by the hchan.lock of the
 	// channel this sudog is blocking on. shrinkstack depends on
 	// this for sudogs involved in channel ops.
-
+	//当前g
 	g *g
 
 	// isSelect indicates g is participating in a select, so
@@ -358,7 +362,9 @@ type sudog struct {
 	// are only accessed when holding a semaRoot lock.
 
 	acquiretime int64
+	//唤醒g之前的时间点-挂起g之前的时间点=g被唤醒前等待的时间
 	releasetime int64
+	//等待队列中当前g的编号
 	ticket      uint32
 	parent      *sudog // semaRoot binary tree
 	waitlink    *sudog // g.waiting list or semaRoot
@@ -427,6 +433,7 @@ type g struct {
 	//所有位于全局运行队列中的g形成一个链表
 	schedlink      guintptr
 	waitsince      int64      // approx time when the g become blocked
+	//挂起调度的原因
 	waitreason     waitReason // if status==Gwaiting
 	// 抢占调度标志，如果需要抢占调度，设置preempt为true
 	preempt        bool       // preemption signal, duplicates stackguard0 = stackpreempt
@@ -528,8 +535,11 @@ type m struct {
 	lockedExt     uint32      // tracking for external LockOSThread
 	lockedInt     uint32      // tracking for internal lockOSThread
 	nextwaitm     muintptr    // next m waiting for lock
+	//释放获取到的锁
 	waitunlockf   func(*g, unsafe.Pointer) bool
+	//获取到的锁
 	waitlock      unsafe.Pointer
+	//trace标记
 	waittraceev   byte
 	waittraceskip int
 	startingtrace bool
@@ -601,6 +611,7 @@ type p struct {
 		n int32
 	}
 
+	//代表挂起的g的对象缓存
 	sudogcache []*sudog
 	sudogbuf   [128]*sudog
 
@@ -702,8 +713,10 @@ type schedt struct {
 		n       int32
 	}
 
+	// 全局挂起g的锁
 	// Central cache of sudog structs.
 	sudoglock  mutex
+	//全局保存代表挂起的g的对象缓存
 	sudogcache *sudog
 
 	// Central pool of available defer structs of different sizes.
@@ -896,6 +909,7 @@ const _TracebackMaxFrames = 100
 
 // A waitReason explains why a goroutine has been stopped.
 // See gopark. Do not re-use waitReasons, add new ones.
+//g挂起的原因
 type waitReason uint8
 
 const (

@@ -43,16 +43,20 @@ func key32(p *uintptr) *uint32 {
 	return (*uint32)(unsafe.Pointer(p))
 }
 
+//获取锁
 func lock(l *mutex) {
 	gp := getg()
 
 	if gp.m.locks < 0 {
 		throw("runtime·lock: lock count")
 	}
+	//执行当前g的m锁数量+1
 	gp.m.locks++
 
+	//原子交换，返回旧值
 	// Speculative grab for lock.
 	v := atomic.Xchg(key32(&l.key), mutex_locked)
+	//被其它g唤醒
 	if v == mutex_unlocked {
 		return
 	}
@@ -69,17 +73,21 @@ func lock(l *mutex) {
 	// On uniprocessors, no point spinning.
 	// On multiprocessors, spin for ACTIVE_SPIN attempts.
 	spin := 0
+	//如果只有一个cpu自旋没意义
 	if ncpu > 1 {
 		spin = active_spin
 	}
 	for {
+		//尝试自旋获取锁
 		// Try for lock, spinning.
 		for i := 0; i < spin; i++ {
 			for l.key == mutex_unlocked {
+				//尝试获取锁
 				if atomic.Cas(key32(&l.key), mutex_unlocked, wait) {
 					return
 				}
 			}
+			//暂停30个clock
 			procyield(active_spin_cnt)
 		}
 
@@ -90,24 +98,33 @@ func lock(l *mutex) {
 					return
 				}
 			}
+			//yield使用另一个级别等于或高于当前线程的线程先运行。如果没有符合条件的线程，
+			//那么这个函数将会立刻返回然后继续执行当前线程的程序
 			osyield()
 		}
 
+		//通过自旋获取锁失败，则使用系统调用sleep
 		// Sleep.
 		v = atomic.Xchg(key32(&l.key), mutex_sleeping)
+		//被其它g唤醒
 		if v == mutex_unlocked {
 			return
 		}
 		wait = mutex_sleeping
+		//系统调用进行sleep,如果在futex获取锁时锁的状态不等于期望的状态会直接返回重新获取锁
 		futexsleep(key32(&l.key), mutex_sleeping, -1)
 	}
 }
 
+//释放锁
 func unlock(l *mutex) {
+	//原子交换，返回旧值
 	v := atomic.Xchg(key32(&l.key), mutex_unlocked)
+	//锁已经被释放
 	if v == mutex_unlocked {
 		throw("unlock of unlocked lock")
 	}
+	//唤醒一个g
 	if v == mutex_sleeping {
 		futexwakeup(key32(&l.key), 1)
 	}

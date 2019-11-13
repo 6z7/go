@@ -622,6 +622,8 @@ TEXT runtime·settls(SB),NOSPLIT,$32
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
+//yield使用另一个级别等于或高于当前线程的线程先运行。如果没有符合条件的线程，
+//那么这个函数将会立刻返回然后继续执行当前线程的程序
 TEXT runtime·osyield(SB),NOSPLIT,$0
 	MOVL	$SYS_sched_yield, AX
 	SYSCALL

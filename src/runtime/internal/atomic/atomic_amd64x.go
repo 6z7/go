@@ -37,6 +37,7 @@ func LoadAcq(ptr *uint32) uint32 {
 	return *ptr
 }
 
+
 //go:noescape
 func Xadd(ptr *uint32, delta int32) uint32
 
@@ -46,6 +47,7 @@ func Xadd64(ptr *uint64, delta int64) uint64
 //go:noescape
 func Xadduintptr(ptr *uintptr, delta uintptr) uintptr
 
+//原子交换，返回旧值
 //go:noescape
 func Xchg(ptr *uint32, new uint32) uint32
 

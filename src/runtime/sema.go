@@ -442,16 +442,17 @@ func (root *semaRoot) rotateRight(y *sudog) {
 	}
 }
 
-// 实现sync.Cond的notifyList
+// 等待队列notifyList结构体
 // notifyList is a ticket-based notification list used to implement sync.Cond.
 //
 // It must be kept in sync with the sync package.
 type notifyList struct {
 	// wait is the ticket number of the next waiter. It is atomically
 	// incremented outside the lock.
-	//等待的g数量
+	// 等待唤醒的g的编号，从0开始
 	wait uint32
 
+	//下一个被唤醒的g的编号
 	// notify is the ticket number of the next waiter to be notified. It can
 	// be read outside the lock, but is only written to with lock held.
 	//
@@ -462,8 +463,11 @@ type notifyList struct {
 	notify uint32
 
 	// List of parked waiters.
+	// 锁
 	lock mutex
+	//挂起的g 头节点
 	head *sudog
+	//挂起的g 尾节点
 	tail *sudog
 }
 
@@ -473,6 +477,7 @@ func less(a, b uint32) bool {
 	return int32(a-b) < 0
 }
 
+// 等待唤醒的g数量+1，返回一个代表当前g
 // notifyListAdd adds the caller to a notify list such that it can receive
 // notifications. The caller must eventually call notifyListWait to wait for
 // such a notification, passing the returned ticket number.
@@ -483,12 +488,14 @@ func notifyListAdd(l *notifyList) uint32 {
 	return atomic.Xadd(&l.wait, 1) - 1
 }
 
+// 等待唤醒，如果当前g已经被唤醒则直接返回
 // notifyListWait waits for a notification. If one has been sent since
 // notifyListAdd was called, it returns immediately. Otherwise, it blocks.
 //go:linkname notifyListWait sync.runtime_notifyListWait
 func notifyListWait(l *notifyList, t uint32) {
 	lock(&l.lock)
 
+	// 当前g的编号<下一次被唤醒的g的编号，说明当前g已经被唤醒则直接解锁返回
 	// Return right away if this ticket has already been notified.
 	if less(t, l.notify) {
 		unlock(&l.lock)
@@ -503,7 +510,7 @@ func notifyListWait(l *notifyList, t uint32) {
 	t0 := int64(0)
 	if blockprofilerate > 0 {
 		t0 = cputicks()
-		s.releasetime = -1
+		s.releasetime = -1    //在唤醒时更新
 	}
 	if l.tail == nil {
 		l.head = s
@@ -511,6 +518,7 @@ func notifyListWait(l *notifyList, t uint32) {
 		l.tail.next = s
 	}
 	l.tail = s
+	//挂起当前g等待唤醒，在当前g之前会释放获取到的锁
 	goparkunlock(&l.lock, waitReasonSyncCondWait, traceEvGoBlockCond, 3)
 	if t0 != 0 {
 		blockevent(s.releasetime-t0, 2)
@@ -518,6 +526,7 @@ func notifyListWait(l *notifyList, t uint32) {
 	releaseSudog(s)
 }
 
+// 唤醒所有g
 // notifyListNotifyAll notifies all entries in the list.
 //go:linkname notifyListNotifyAll sync.runtime_notifyListNotifyAll
 func notifyListNotifyAll(l *notifyList) {
@@ -550,6 +559,7 @@ func notifyListNotifyAll(l *notifyList) {
 	}
 }
 
+// 唤醒g
 // notifyListNotifyOne notifies one entry in the list.
 //go:linkname notifyListNotifyOne sync.runtime_notifyListNotifyOne
 func notifyListNotifyOne(l *notifyList) {
@@ -559,6 +569,7 @@ func notifyListNotifyOne(l *notifyList) {
 		return
 	}
 
+	//获取锁
 	lock(&l.lock)
 
 	// Re-check under the lock if we need to do anything.
@@ -568,6 +579,7 @@ func notifyListNotifyOne(l *notifyList) {
 		return
 	}
 
+	// 下一个被唤醒的g的编号
 	// Update the next notify ticket number.
 	atomic.Store(&l.notify, t+1)
 
@@ -585,6 +597,8 @@ func notifyListNotifyOne(l *notifyList) {
 	// it hasn't yet gotten to sleep and has lost the race to
 	// the (few) other g's that we find on the list.
 	for p, s := (*sudog)(nil), l.head; s != nil; p, s = s, s.next {
+		//p前一个节点
+		//s当前节点
 		if s.ticket == t {
 			n := s.next
 			if p != nil {
@@ -597,10 +611,12 @@ func notifyListNotifyOne(l *notifyList) {
 			}
 			unlock(&l.lock)
 			s.next = nil
+			//重新调度g
 			readyWithTime(s, 4)
 			return
 		}
 	}
+	//释放g上的锁
 	unlock(&l.lock)
 }
 

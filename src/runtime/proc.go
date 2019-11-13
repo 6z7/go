@@ -287,6 +287,7 @@ func goschedguarded() {
 	mcall(goschedguarded_m)
 }
 
+// 挂起当前g,并释放g上的锁，如果锁释放失败则继续执行当前g
 // Puts the current goroutine into a waiting state and calls unlockf.
 // If unlockf returns false, the goroutine is resumed.
 // unlockf must not access this G's stack, as it may be moved between
@@ -312,22 +313,24 @@ func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason w
 	mp.waittraceskip = traceskip
 	releasem(mp)
 	// can't do anything that might move the G between Ms here.
-	mcall(park_m)
+	mcall(park_m) //切换到g0前先执行park_m
 }
 
+// 暂停调度当前g,释放获取到的锁，等待被重新调度,如果g上的锁释放失败则会继续执行当前g
 // Puts the current goroutine into a waiting state and unlocks the lock.
 // The goroutine can be made runnable again by calling goready(gp).
 func goparkunlock(lock *mutex, reason waitReason, traceEv byte, traceskip int) {
 	gopark(parkunlock_c, unsafe.Pointer(lock), reason, traceEv, traceskip)
 }
 
+// 将g加入当前p的运行队列中，如果当前p队列已满则放入全局队列中
 func goready(gp *g, traceskip int) {
 	systemstack(func() {
-		ready(gp, traceskip, true)
+		ready(gp, traceskip, true)  //true 将g当去p的next中优先调度
 	})
 }
 
-//代表一个等待队列中的g
+//从本地的缓存中获取全局缓存中或者新建一个代表挂起的g的对象
 //go:nosplit
 func acquireSudog() *sudog {
 	// Delicate dance: the semaphore implementation calls
@@ -338,7 +341,7 @@ func acquireSudog() *sudog {
 	// Break the cycle by doing acquirem/releasem around new(sudog).
 	// The acquirem/releasem increments m.locks during new(sudog),
 	// which keeps the garbage collector from being invoked.
-	mp := acquirem()
+	mp := acquirem()  //当前g的m上锁+1
 	pp := mp.p.ptr()
 	if len(pp.sudogcache) == 0 {
 		lock(&sched.sudoglock)
@@ -362,10 +365,12 @@ func acquireSudog() *sudog {
 	if s.elem != nil {
 		throw("acquireSudog: found s.elem != nil in cache")
 	}
+	//当前g的m上锁-1
 	releasem(mp)
 	return s
 }
 
+// 保存代表挂起g的对象到本地p或全局缓存中
 //go:nosplit
 func releaseSudog(s *sudog) {
 	if s.elem != nil {
@@ -392,6 +397,7 @@ func releaseSudog(s *sudog) {
 	}
 	mp := acquirem() // avoid rescheduling to another P
 	pp := mp.p.ptr()
+	//本地p已经满则放到全局中保存
 	if len(pp.sudogcache) == cap(pp.sudogcache) {
 		// Transfer half of local cache to the central cache.
 		var first, last *sudog
@@ -2195,6 +2201,7 @@ func gcstopm() {
 	stopm()
 }
 
+// 调度g在当前m上执行
 // Schedules gp to run on the current M.
 // If inheritTime is true, gp inherits the remaining time in the
 // current time slice. Otherwise, it starts a new time slice.
@@ -2677,11 +2684,13 @@ func dropg() {
 	setGNoWB(&_g_.m.curg, nil)
 }
 
+//释放锁
 func parkunlock_c(gp *g, lock unsafe.Pointer) bool {
 	unlock((*mutex)(lock))
 	return true
 }
 
+// 挂起当前g
 // park continuation on g0.
 func park_m(gp *g) {
 	_g_ := getg()
@@ -2694,6 +2703,7 @@ func park_m(gp *g) {
 	//解除g和m之间的关系
 	dropg()
 
+	//如果g上有锁，挂起之前则先释放锁
 	if fn := _g_.m.waitunlockf; fn != nil {
 		ok := fn(gp, _g_.m.waitlock)
 		_g_.m.waitunlockf = nil
@@ -2703,9 +2713,11 @@ func park_m(gp *g) {
 				traceGoUnpark(gp, 2)
 			}
 			casgstatus(gp, _Gwaiting, _Grunnable)
+			//释放g上的锁失败，继续执行当前g
 			execute(gp, true) // Schedule it back, never returns.
 		}
 	}
+	//调度g
 	schedule()
 }
 

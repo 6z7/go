@@ -11,6 +11,7 @@ import (
 
 type mOS struct{}
 
+//sys_linux_amd64.s
 //go:noescape
 func futex(addr unsafe.Pointer, op int32, val uint32, ts, addr2 unsafe.Pointer, val3 uint32) int32
 
@@ -29,12 +30,16 @@ const (
 	_FUTEX_WAKE_PRIVATE = 1 | _FUTEX_PRIVATE_FLAG
 )
 
+// 如果if(*addr == val) sleep
+// ns睡眠时间，=0则一直睡眠
 // Atomically,
 //	if(*addr == val) sleep
 // Might be woken up spuriously; that's allowed.
 // Don't sleep longer than ns; ns < 0 means forever.
 //go:nosplit
 func futexsleep(addr *uint32, val uint32, ns int64) {
+	// futex维护一个总的队列，所有挂起的进程都放在里，队列中的节点需要能标识出相应进程在等待的是哪一个uaddr
+	// 系统调用futex先判断addr是否等于期望的val,如果不相等则直接返回有用户态自旋重新获取锁
 	// Some Linux kernels have a bug where futex of
 	// FUTEX_WAIT returns an internal error code
 	// as an errno. Libpthread ignores the return value
@@ -50,6 +55,7 @@ func futexsleep(addr *uint32, val uint32, ns int64) {
 	futex(unsafe.Pointer(addr), _FUTEX_WAIT_PRIVATE, val, unsafe.Pointer(&ts), nil, 0)
 }
 
+// 最多唤醒n个阻塞在同一个地址上的g
 // If any procs are sleeping on addr, wake up at most cnt.
 //go:nosplit
 func futexwakeup(addr *uint32, cnt uint32) {
@@ -374,7 +380,9 @@ func raiseproc(sig uint32)
 
 //go:noescape
 func sched_getaffinity(pid, len uintptr, buf *byte) int32
-func osyield()
+//yield使用另一个级别等于或高于当前线程的线程先运行。如果没有符合条件的线程，
+//那么这个函数将会立刻返回然后继续执行当前线程的程序
+func osyield()   //sys_linux_amd64.s
 
 //go:nosplit
 //go:nowritebarrierrec

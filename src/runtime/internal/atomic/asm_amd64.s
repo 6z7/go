@@ -104,6 +104,7 @@ TEXT runtime∕internal∕atomic·Xadd64(SB), NOSPLIT, $0-24
 TEXT runtime∕internal∕atomic·Xadduintptr(SB), NOSPLIT, $0-24
 	JMP	runtime∕internal∕atomic·Xadd64(SB)
 
+//第一个值与第二个值交换并返回第一个值
 TEXT runtime∕internal∕atomic·Xchg(SB), NOSPLIT, $0-20
 	MOVQ	ptr+0(FP), BX
 	MOVL	new+8(FP), AX

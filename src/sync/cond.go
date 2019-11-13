@@ -9,6 +9,7 @@ import (
 	"unsafe"
 )
 
+//wait先释放锁在将当前g放入等待队列,被唤醒后先获取锁
 // Cond implements a condition variable, a rendezvous point
 // for goroutines waiting for or announcing the occurrence
 // of an event.
@@ -55,9 +56,13 @@ func NewCond(l Locker) *Cond {
 //    c.L.Unlock()
 //
 func (c *Cond) Wait() {
+	// 检查c是否是被复制的，如果是就panic
 	c.checker.check()
+	//获取当前g等待唤醒的编号
 	t := runtime_notifyListAdd(&c.notify)
+	//释放锁
 	c.L.Unlock()
+	//挂起当前g等待唤醒
 	runtime_notifyListWait(&c.notify, t)
 	c.L.Lock()
 }
@@ -68,6 +73,7 @@ func (c *Cond) Wait() {
 // during the call.
 func (c *Cond) Signal() {
 	c.checker.check()
+	//唤醒一个g
 	runtime_notifyListNotifyOne(&c.notify)
 }
 
