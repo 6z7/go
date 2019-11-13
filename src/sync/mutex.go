@@ -195,7 +195,7 @@ func (m *Mutex) lockSlow() {
 			// 通过信号量来排队获取锁
 			// 如果是新来的goroutine，就放到队列尾部
 			// 如果是被唤醒的等待锁的goroutine，就放到队列头部
-			runtime_SemacquireMutex(&m.sema, queueLifo, 1)
+			runtime_SemacquireMutex(&m.sema, queueLifo, 1)  // runtime/sema.go
 
 			//获取到信号量进入下面的步骤(唤醒了当前的waiter)
 

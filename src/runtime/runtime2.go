@@ -146,7 +146,7 @@ const (
 	_Pdead
 )
 
-// 互斥锁
+// 内部互斥锁
 // 先尝试自旋获取锁，未获取到则在通过系统调用挂起g等待唤醒，
 //
 // Mutual exclusion locks.  In the uncontended case,
@@ -352,8 +352,10 @@ type sudog struct {
 	// isSelect indicates g is participating in a select, so
 	// g.selectDone must be CAS'd to win the wake-up race.
 	isSelect bool
+	//
 	next     *sudog
 	prev     *sudog
+	//挂起g在阻塞在哪个参数上 如同一个信号量的地址
 	elem     unsafe.Pointer // data element (may point to stack)
 
 	// The following fields are never accessed concurrently.
@@ -366,6 +368,7 @@ type sudog struct {
 	releasetime int64
 	//等待队列中当前g的编号
 	ticket      uint32
+	//挂起的g队列的父节点 指向左子树或右子树
 	parent      *sudog // semaRoot binary tree
 	waitlink    *sudog // g.waiting list or semaRoot
 	waittail    *sudog // semaRoot

@@ -38,8 +38,11 @@ import (
 // before we introduced the second level of list, and test/locklinear.go
 // for a test that exercises this.
 type semaRoot struct {
+	//内部互斥锁
 	lock  mutex
+	//sudog的根节点
 	treap *sudog // root of balanced tree of unique waiters.
+	//等待唤醒的g的编号，从0开始
 	nwait uint32 // Number of waiters. Read w/o the lock.
 }
 
@@ -66,11 +69,13 @@ func sync_runtime_Semrelease(addr *uint32, handoff bool, skipframes int) {
 	semrelease1(addr, handoff, skipframes)
 }
 
+//通过信号量获取锁
 //go:linkname sync_runtime_SemacquireMutex sync.runtime_SemacquireMutex
 func sync_runtime_SemacquireMutex(addr *uint32, lifo bool, skipframes int) {
 	semacquire1(addr, lifo, semaBlockProfile|semaMutexProfile, skipframes)
 }
 
+//通过信号量释放锁
 //go:linkname poll_runtime_Semrelease internal/poll.runtime_Semrelease
 func poll_runtime_Semrelease(addr *uint32) {
 	semrelease(addr)
@@ -95,13 +100,16 @@ func semacquire(addr *uint32) {
 	semacquire1(addr, false, 0, 0)
 }
 
+//
+// lifo true则将当前g放入头节点
+// addr 阻塞在当前地址上
 func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes int) {
 	gp := getg()
 	if gp != gp.m.curg {
 		throw("semacquire not on the G stack")
 	}
 
-	//能否获取一个信号量
+	// 能否获取一个信号量
 	// Easy case.
 	if cansemacquire(addr) {
 		return
@@ -114,6 +122,7 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
 	//	sleep
 	//	(waiter descriptor is dequeued by signaler)
 	s := acquireSudog()
+	//获取保存信号量的semroot
 	root := semroot(addr)
 	t0 := int64(0)
 	s.releasetime = 0
@@ -141,6 +150,7 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
 		}
 		// Any semrelease after the cansemacquire knows we're waiting
 		// (we set nwait above), so go to sleep.
+		//加入挂起的g的队列
 		root.queue(addr, s, lifo)
 		goparkunlock(&root.lock, waitReasonSemacquire, traceEvGoBlockSync, 4+skipframes)
 		if s.ticket != 0 || cansemacquire(addr) {
@@ -196,7 +206,9 @@ func semrelease1(addr *uint32, handoff bool, skipframes int) {
 	}
 }
 
+//获取保存信号量的semroot
 func semroot(addr *uint32) *semaRoot {
+	//根据阻塞的地址计算出保存位置
 	return &semtable[(uintptr(unsafe.Pointer(addr))>>3)%semTabSize].root
 }
 
@@ -213,6 +225,7 @@ func cansemacquire(addr *uint32) bool {
 	}
 }
 
+// 当前g加入队列(队列是一个平衡树)
 // queue adds s to the blocked goroutines in semaRoot.
 func (root *semaRoot) queue(addr *uint32, s *sudog, lifo bool) {
 	s.g = getg()
@@ -223,6 +236,7 @@ func (root *semaRoot) queue(addr *uint32, s *sudog, lifo bool) {
 	var last *sudog
 	pt := &root.treap
 	for t := *pt; t != nil; t = *pt {
+		//如果阻塞在同一个地址上
 		if t.elem == unsafe.Pointer(addr) {
 			// Already have addr in list.
 			if lifo {
