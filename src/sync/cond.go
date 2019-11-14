@@ -30,6 +30,7 @@ type Cond struct {
 	// 通知列表,调用Wait()方法的goroutine会被放入list中,每次唤醒,从这里取出
 	notify notifyList
 	// 复制检查,检查cond实例是否被复制
+	//被复制后指向原始对象的指针,如果没有复制执行一个0的指针
 	checker copyChecker
 }
 
@@ -89,6 +90,7 @@ func (c *Cond) Broadcast() {
 // copyChecker holds back pointer to itself to detect object copying.
 type copyChecker uintptr
 
+//如果没有被复制 c指向的是0的指针，否则指向被复制对象
 func (c *copyChecker) check() {
 	if uintptr(*c) != uintptr(unsafe.Pointer(c)) &&
 		!atomic.CompareAndSwapUintptr((*uintptr)(c), 0, uintptr(unsafe.Pointer(c))) &&
