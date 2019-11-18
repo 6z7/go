@@ -506,6 +506,7 @@ type m struct {
 	id            int64
 	mallocing     int32
 	throwing      int32
+	//抢占关闭的原因
 	preemptoff    string // if != "", keep curg running on this m
 	//m上获取lock的数量
 	locks         int32
@@ -664,6 +665,7 @@ type schedt struct {
 	goidgen  uint64
 	lastpoll uint64
 
+	//全局调度锁
 	lock mutex
 
 	// When increasing nmidle, nmidlelocked, nmsys, or nmfreed, be

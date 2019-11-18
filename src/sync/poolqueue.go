@@ -9,6 +9,8 @@ import (
 	"unsafe"
 )
 
+// poolDequeue是一个无锁的固定大小的单一生产者多个消费者的队列，
+// 生产者可以从head执行pop或push,消费者可以从tail执行pop
 // poolDequeue is a lock-free fixed-size single-producer,
 // multi-consumer queue. The single producer can both push and pop
 // from the head, and consumers can pop from the tail.
@@ -17,6 +19,12 @@ import (
 // unnecessary retention of objects. This is important for sync.Pool,
 // but not typically a property considered in the literature.
 type poolDequeue struct {
+
+	// headTail有2部分组成 高32bit的head index与低32bit的tail index
+	// 都是vals[]的索引
+	// tail指向队列中最老的数据
+	// head指向队列中下一个可以用的slot
+	// [tail,head)之前的slot可以被consumer消费
 	// headTail packs together a 32-bit head index and a 32-bit
 	// tail index. Both are indexes into vals modulo len(vals)-1.
 	//
@@ -33,6 +41,7 @@ type poolDequeue struct {
 	// harmless.
 	headTail uint64
 
+	// vals是一个环形缓冲，大小是2^n
 	// vals is a ring buffer of interface{} values stored in this
 	// dequeue. The size of this must be a power of 2.
 	//
@@ -44,7 +53,9 @@ type poolDequeue struct {
 	vals []eface
 }
 
+//代表环形缓冲的槽
 type eface struct {
+	//val保存的值
 	typ, val unsafe.Pointer
 }
 
@@ -62,6 +73,7 @@ const dequeueLimit = (1 << dequeueBits) / 4
 // to represent nil.
 type dequeueNil *struct{}
 
+//解出 headIndex与tailIndex
 func (d *poolDequeue) unpack(ptrs uint64) (head, tail uint32) {
 	const mask = 1<<dequeueBits - 1
 	head = uint32((ptrs >> dequeueBits) & mask)
@@ -75,19 +87,26 @@ func (d *poolDequeue) pack(head, tail uint32) uint64 {
 		uint64(tail&mask)
 }
 
+// 保存值到head节点中，如果head节点已满则返回false
 // pushHead adds val at the head of the queue. It returns false if the
 // queue is full. It must only be called by a single producer.
 func (d *poolDequeue) pushHead(val interface{}) bool {
+	//原子加载
 	ptrs := atomic.LoadUint64(&d.headTail)
+	//head与tail
 	head, tail := d.unpack(ptrs)
+	//(tail+len(vals))%dequeueBits=head 环形缓冲已满
 	if (tail+uint32(len(d.vals)))&(1<<dequeueBits-1) == head {
 		// Queue is full.
 		return false
 	}
+	//计算出存储的位置
 	slot := &d.vals[head&uint32(len(d.vals)-1)]
 
 	// Check if the head slot has been released by popTail.
+	// 判断slot是否已经被popTail操作释放
 	typ := atomic.LoadPointer(&slot.typ)
+	//slot正在被使用，
 	if typ != nil {
 		// Another goroutine is still cleaning up the tail, so
 		// the queue is actually still full.
@@ -102,10 +121,12 @@ func (d *poolDequeue) pushHead(val interface{}) bool {
 
 	// Increment head. This passes ownership of slot to popTail
 	// and acts as a store barrier for writing the slot.
+	//环形缓冲head++
 	atomic.AddUint64(&d.headTail, 1<<dequeueBits)
 	return true
 }
 
+// 从head节点中返回并移除元素，如果队列是空返回false
 // popHead removes and returns the element at the head of the queue.
 // It returns false if the queue is empty. It must only be called by a
 // single producer.
@@ -114,6 +135,7 @@ func (d *poolDequeue) popHead() (interface{}, bool) {
 	for {
 		ptrs := atomic.LoadUint64(&d.headTail)
 		head, tail := d.unpack(ptrs)
+		//队列空
 		if tail == head {
 			// Queue is empty.
 			return nil, false
@@ -137,10 +159,12 @@ func (d *poolDequeue) popHead() (interface{}, bool) {
 	}
 	// Zero the slot. Unlike popTail, this isn't racing with
 	// pushHead, so we don't need to be careful here.
+	//清空槽
 	*slot = eface{}
 	return val, true
 }
 
+// 从tail节点中返回并移除元素，如果队列是空返回false
 // popTail removes and returns the element at the tail of the queue.
 // It returns false if the queue is empty. It may be called by any
 // number of consumers.
@@ -184,6 +208,9 @@ func (d *poolDequeue) popTail() (interface{}, bool) {
 	return val, true
 }
 
+// poolChain是一个双向链表
+// 每个节点是一个poolDequeue结构(环形缓冲)，每个节点缓冲大小是前一个节点的2倍，
+// 一旦一个节点的缓冲用完，则创建一个新的节点，head指向它
 // poolChain is a dynamically-sized version of poolDequeue.
 //
 // This is implemented as a doubly-linked list queue of poolDequeues
@@ -194,6 +221,7 @@ func (d *poolDequeue) popTail() (interface{}, bool) {
 type poolChain struct {
 	// head is the poolDequeue to push to. This is only accessed
 	// by the producer, so doesn't need to be synchronized.
+	// 指向当前保存值的poolChainElt对象
 	head *poolChainElt
 
 	// tail is the poolDequeue to popTail from. This is accessed
@@ -204,6 +232,7 @@ type poolChain struct {
 type poolChainElt struct {
 	poolDequeue
 
+	// 前后poolChainElt节点指针
 	// next and prev link to the adjacent poolChainElts in this
 	// poolChain.
 	//
@@ -225,9 +254,13 @@ func loadPoolChainElt(pp **poolChainElt) *poolChainElt {
 	return (*poolChainElt)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(pp))))
 }
 
+//保存val到队列head中
+//先保存到head节点指向的环形缓冲中，如果已经满，则创建一个2倍大小的新节点用于保存
 func (c *poolChain) pushHead(val interface{}) {
+	//当前缓存值的节点
 	d := c.head
 	if d == nil {
+		//初始化
 		// Initialize the chain.
 		const initSize = 8 // Must be a power of 2
 		d = new(poolChainElt)
@@ -237,24 +270,30 @@ func (c *poolChain) pushHead(val interface{}) {
 	}
 
 	if d.pushHead(val) {
+		//head节点的缓冲已满
 		return
 	}
 
 	// The current dequeue is full. Allocate a new one of twice
 	// the size.
+	//新节点是老节点的2倍
 	newSize := len(d.vals) * 2
 	if newSize >= dequeueLimit {
 		// Can't make it any bigger.
 		newSize = dequeueLimit
 	}
 
+	//新的poolChainElt节点
 	d2 := &poolChainElt{prev: d}
 	d2.vals = make([]eface, newSize)
+	//head执行新的poolChainElt节点
 	c.head = d2
 	storePoolChainElt(&d.next, d2)
+	//保存值到新节点中
 	d2.pushHead(val)
 }
 
+//从head节点中弹出一个值
 func (c *poolChain) popHead() (interface{}, bool) {
 	d := c.head
 	for d != nil {
@@ -263,11 +302,13 @@ func (c *poolChain) popHead() (interface{}, bool) {
 		}
 		// There may still be unconsumed elements in the
 		// previous dequeue, so try backing up.
+		// 向前遍历链表
 		d = loadPoolChainElt(&d.prev)
 	}
 	return nil, false
 }
 
+//从链表的尾部返回弹出一个元素
 func (c *poolChain) popTail() (interface{}, bool) {
 	d := loadPoolChainElt(&c.tail)
 	if d == nil {
@@ -293,6 +334,7 @@ func (c *poolChain) popTail() (interface{}, bool) {
 			return nil, false
 		}
 
+		// 从链表中移除无效的节点，下次pop时就不用在遍历了
 		// The tail of the chain has been drained, so move on
 		// to the next dequeue. Try to drop it from the chain
 		// so the next pop doesn't have to look at the empty

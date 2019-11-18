@@ -44,10 +44,14 @@ import (
 type Pool struct {
 	noCopy noCopy
 
+	//指向poolLocal[cpu核数]数组
 	local     unsafe.Pointer // local fixed-size per-P pool, actual type is [P]poolLocal
+	//poolLocal[cpu核数]数组的大小 等于cpu的核心数
 	localSize uintptr        // size of the local array
 
+	//上次回收的local
 	victim     unsafe.Pointer // local from previous cycle
+	//上次回收的localSize
 	victimSize uintptr        // size of victims array
 
 	// New optionally specifies a function to generate
@@ -58,7 +62,9 @@ type Pool struct {
 
 // Local per-P Pool appendix.
 type poolLocalInternal struct {
+	//当前P持有的一个缓存的值，用于快速访问
 	private interface{} // Can be used only by the respective P.
+	//缓存要保存的值
 	shared  poolChain   // Local P can pushHead/popHead; any P can popTail.
 }
 
@@ -86,6 +92,8 @@ func poolRaceAddr(x interface{}) unsafe.Pointer {
 	return unsafe.Pointer(&poolRaceHash[h%uint32(len(poolRaceHash))])
 }
 
+// 保存x到缓存中
+// 优先保存在当前P的私有变量处，在保存在队列中
 // Put adds x to the pool.
 func (p *Pool) Put(x interface{}) {
 	if x == nil {
@@ -99,11 +107,15 @@ func (p *Pool) Put(x interface{}) {
 		race.ReleaseMerge(poolRaceAddr(x))
 		race.Disable()
 	}
+	//获取当前p对应的poolLocal
 	l, _ := p.pin()
+	//当前P的私有变量还未被使用
 	if l.private == nil {
+		//保存一个要缓存的值
 		l.private = x
 		x = nil
 	}
+	//如果当前P的私有变量处无法保存则保存在队列中
 	if x != nil {
 		l.shared.pushHead(x)
 	}
@@ -125,10 +137,15 @@ func (p *Pool) Get() interface{} {
 	if race.Enabled {
 		race.Disable()
 	}
+	//当前P所属的poolLocal
 	l, pid := p.pin()
+	//当前P的私有值
 	x := l.private
+	//清空，用于下次保存私有值
 	l.private = nil
+	//当前P的私有值没有，则从队列中获取
 	if x == nil {
+		// 先尝试从head中pop,再从其它P中偷
 		// Try to pop the head of the local shard. We prefer
 		// the head over the tail for temporal locality of
 		// reuse.
@@ -137,6 +154,7 @@ func (p *Pool) Get() interface{} {
 			x = p.getSlow(pid)
 		}
 	}
+	//m.lock-- 可以被抢占
 	runtime_procUnpin()
 	if race.Enabled {
 		race.Enable()
@@ -150,11 +168,13 @@ func (p *Pool) Get() interface{} {
 	return x
 }
 
+//从其它P的缓冲中偷
 func (p *Pool) getSlow(pid int) interface{} {
 	// See the comment in pin regarding ordering of the loads.
 	size := atomic.LoadUintptr(&p.localSize) // load-acquire
 	locals := p.local                        // load-consume
 	// Try to steal one element from other procs.
+	// 尝试从其它P的缓冲中偷
 	for i := 0; i < int(size); i++ {
 		l := indexLocal(locals, (pid+i+1)%int(size))
 		if x, _ := l.shared.popTail(); x != nil {
@@ -162,6 +182,7 @@ func (p *Pool) getSlow(pid int) interface{} {
 		}
 	}
 
+	// 尝试从上次gc后的缓存中获取
 	// Try the victim cache. We do this after attempting to steal
 	// from all primary caches because we want objects in the
 	// victim cache to age out if at all possible.
@@ -193,19 +214,25 @@ func (p *Pool) getSlow(pid int) interface{} {
 // returns poolLocal pool for the P and the P's id.
 // Caller must call runtime_procUnpin() when done with the pool.
 func (p *Pool) pin() (*poolLocal, int) {
+	//m.lock++,禁止抢占
 	pid := runtime_procPin()
 	// In pinSlow we store to local and then to localSize, here we load in opposite order.
 	// Since we've disabled preemption, GC cannot happen in between.
 	// Thus here we must observe local at least as large localSize.
 	// We can observe a newer/larger local, it is fine (we must observe its zero-initialized-ness).
+	//当前pool数组大小
 	s := atomic.LoadUintptr(&p.localSize) // load-acquire
+	//pool数组
 	l := p.local                          // load-consume
 	if uintptr(pid) < s {
+		//pool数组中第pid个元素
 		return indexLocal(l, pid), pid
 	}
+	//如果P的id大于poolLocal数组的大小，则重新分配数组
 	return p.pinSlow()
 }
 
+//返回当前P关联的poolLocal
 func (p *Pool) pinSlow() (*poolLocal, int) {
 	// Retry under the mutex.
 	// Can not lock the mutex while pinned.
@@ -223,6 +250,7 @@ func (p *Pool) pinSlow() (*poolLocal, int) {
 		allPools = append(allPools, p)
 	}
 	// If GOMAXPROCS changes between GCs, we re-allocate the array and lose the old one.
+	// cpu核数
 	size := runtime.GOMAXPROCS(0)
 	local := make([]poolLocal, size)
 	atomic.StorePointer(&p.local, unsafe.Pointer(&local[0])) // store-release
@@ -230,6 +258,9 @@ func (p *Pool) pinSlow() (*poolLocal, int) {
 	return &local[pid], pid
 }
 
+//stw时调用
+//gc时将allPool移动到oldPools,并清空当前缓存，下次gc时清空oldPools，在重新赋值未allPool,
+//所以sync.Pool不适合缓存socket连接
 func poolCleanup() {
 	// This function is called with the world stopped, at the beginning of a garbage collection.
 	// It must not allocate and probably should not call any runtime functions.
@@ -257,19 +288,23 @@ func poolCleanup() {
 }
 
 var (
+	// allPools mutex
 	allPoolsMu Mutex
 
 	// allPools is the set of pools that have non-empty primary
 	// caches. Protected by either 1) allPoolsMu and pinning or 2)
 	// STW.
+	// 所有pool对象，用于gc
 	allPools []*Pool
 
 	// oldPools is the set of pools that may have non-empty victim
 	// caches. Protected by STW.
+	// gc时将allPools移动到oldPools
 	oldPools []*Pool
 )
 
 func init() {
+	//gc cleanup
 	runtime_registerPoolCleanup(poolCleanup)
 }
 
@@ -279,6 +314,9 @@ func indexLocal(l unsafe.Pointer, i int) *poolLocal {
 }
 
 // Implemented in runtime.
-func runtime_registerPoolCleanup(cleanup func())
-func runtime_procPin() int
-func runtime_procUnpin()
+// gc clean up
+func runtime_registerPoolCleanup(cleanup func())  //mgc.go
+//获取P的Id m.lock++,禁止抢占
+func runtime_procPin() int   //proc.go
+//m.lock--  可以抢占
+func runtime_procUnpin()  //proc.go

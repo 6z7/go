@@ -1040,6 +1040,7 @@ func startTheWorldGC() {
 // Holding worldsema grants an M the right to try to stop the world.
 var worldsema uint32 = 1
 
+//gc信号量
 // Holding gcsema grants the M the right to block a GC, and blocks
 // until the current GC is done. In particular, it prevents gomaxprocs
 // from changing concurrently.
