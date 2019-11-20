@@ -8,6 +8,7 @@ import (
 	"unsafe"
 )
 
+// Value提供原子性load和store
 // A Value provides an atomic load and store of a consistently typed value.
 // The zero value for a Value returns nil from Load.
 // Once Store has been called, a Value must not be copied.
@@ -18,6 +19,8 @@ type Value struct {
 }
 
 // ifaceWords is interface{} internal representation.
+// 代表interface{}的内部实现
+// 所有的类型都是实现了interface{}所以都可以转为这个类型
 type ifaceWords struct {
 	typ  unsafe.Pointer
 	data unsafe.Pointer
@@ -66,6 +69,7 @@ func (v *Value) Store(x interface{}) {
 			runtime_procUnpin()
 			return
 		}
+		//第一次store还未完成
 		if uintptr(typ) == ^uintptr(0) {
 			// First store in progress. Wait.
 			// Since we disable preemption around the first store,
@@ -73,6 +77,7 @@ func (v *Value) Store(x interface{}) {
 			continue
 		}
 		// First store completed. Check type and overwrite data.
+		// 第一次store完成比较是否时同一类型
 		if typ != xp.typ {
 			panic("sync/atomic: store of inconsistently typed value into Value")
 		}
