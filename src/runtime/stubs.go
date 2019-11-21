@@ -35,6 +35,8 @@ func getg() *g
 // closure will be invalidated while it is still executing.
 func mcall(fn func(*g))    //asm_amd64.s
 
+// 切换到g0栈执行g的调度操作
+// g0与gsignal使用systemstack会直接返回不会切换到g0
 // systemstack runs fn on a system stack.
 // If systemstack is called from the per-OS-thread (g0) stack, or
 // if systemstack is called from the signal handling (gsignal) stack,

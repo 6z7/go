@@ -4414,6 +4414,7 @@ var forcegcperiod int64 = 2 * 60 * 1e9
 func sysmon() {
 	lock(&sched.lock)
 	sched.nmsys++
+	//死锁检查
 	checkdead()
 	unlock(&sched.lock)
 
@@ -4429,6 +4430,7 @@ func sysmon() {
 		if delay > 10*1000 { // up to 10ms
 			delay = 10 * 1000
 		}
+		//睡眠N微秒,最大睡眠10ms
 		usleep(delay)
 		if debug.schedtrace <= 0 && (sched.gcwaiting != 0 || atomic.Load(&sched.npidle) == uint32(gomaxprocs)) {
 			lock(&sched.lock)
@@ -4486,12 +4488,15 @@ func sysmon() {
 		}
 		// retake P's blocked in syscalls
 		// and preempt long running G's
+		//收回因syscall长时间阻塞的P
+		//向长时间运行的G任务发出抢占调度
 		if retake(now) != 0 {
 			idle = 0
 		} else {
 			idle++
 		}
 		// check if we need to force a GC
+		//检查是否需要强制GC
 		if t := (gcTrigger{kind: gcTriggerTime, now: now}); t.test() && atomic.Load(&forcegc.idle) != 0 {
 			lock(&forcegc.lock)
 			forcegc.idle = 0

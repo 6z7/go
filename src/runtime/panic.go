@@ -780,6 +780,7 @@ func throw(s string) {
 // This is used to try hard to get a panic stack trace out when exiting.
 var runningPanicDefers uint32
 
+// 统计程序崩溃次数
 // panicking is non-zero when crashing the program for an unrecovered panic.
 // panicking is incremented and decremented atomically.
 var panicking uint32

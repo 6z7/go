@@ -170,11 +170,14 @@ func gcPaceScavenger() {
 	unlock(&scavenge.lock)
 }
 
+// 后台清除
 // State of the background scavenger.
 var scavenge struct {
 	lock   mutex
+	//执行gc的g
 	g      *g
 	parked bool
+	//gc定时器
 	timer  *timer
 	gen    uint32 // read with either lock or mheap_.lock, write with both
 }
