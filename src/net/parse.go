@@ -234,6 +234,7 @@ func last(s string, b byte) int {
 	return i
 }
 
+//大写转小写
 // lowerASCIIBytes makes x ASCII lowercase in-place.
 func lowerASCIIBytes(x []byte) {
 	for i, b := range x {

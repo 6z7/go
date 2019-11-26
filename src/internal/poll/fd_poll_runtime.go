@@ -18,24 +18,31 @@ import (
 //go:linkname runtimeNano runtime.nanotime
 func runtimeNano() int64
 
-func runtime_pollServerInit()
-func runtime_pollOpen(fd uintptr) (uintptr, int)
+//创建epoll fd
+func runtime_pollServerInit()   //netpoll.go
+//socket fd关注epoll fd上指定的事件
+func runtime_pollOpen(fd uintptr) (uintptr, int) //netpoll.go
 func runtime_pollClose(ctx uintptr)
 func runtime_pollWait(ctx uintptr, mode int) int
 func runtime_pollWaitCanceled(ctx uintptr, mode int) int
+//pollReset
 func runtime_pollReset(ctx uintptr, mode int) int
 func runtime_pollSetDeadline(ctx uintptr, d int64, mode int)
-func runtime_pollUnblock(ctx uintptr)
+func runtime_pollUnblock(ctx uintptr)  //netpoll.go
 func runtime_isPollServerDescriptor(fd uintptr) bool
 
 type pollDesc struct {
+	//指向 封装了socket fd的pollDesc结构
 	runtimeCtx uintptr
 }
 
 var serverInit sync.Once
 
+//创建一个epoll fd,socket fd订阅epool fd上的特定事件
 func (pd *pollDesc) init(fd *FD) error {
+	//创建epoll fd
 	serverInit.Do(runtime_pollServerInit)
+	//socket fd关注epoll fd上指定的事件
 	ctx, errno := runtime_pollOpen(uintptr(fd.Sysfd))
 	if errno != 0 {
 		if ctx != 0 {
@@ -44,10 +51,12 @@ func (pd *pollDesc) init(fd *FD) error {
 		}
 		return errnoErr(syscall.Errno(errno))
 	}
+	//ctc:pollDesc地址
 	pd.runtimeCtx = ctx
 	return nil
 }
 
+//关闭轮询
 func (pd *pollDesc) close() {
 	if pd.runtimeCtx == 0 {
 		return
@@ -64,14 +73,16 @@ func (pd *pollDesc) evict() {
 	runtime_pollUnblock(pd.runtimeCtx)
 }
 
+//重置pollDesc
 func (pd *pollDesc) prepare(mode int, isFile bool) error {
 	if pd.runtimeCtx == 0 {
 		return nil
 	}
+	//重置pollDesc
 	res := runtime_pollReset(pd.runtimeCtx, mode)
 	return convertErr(res, isFile)
 }
-
+//重置pollDesc
 func (pd *pollDesc) prepareRead(isFile bool) error {
 	return pd.prepare('r', isFile)
 }

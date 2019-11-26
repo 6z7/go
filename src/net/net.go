@@ -366,6 +366,7 @@ type PacketConn interface {
 
 var listenerBacklogCache struct {
 	sync.Once
+	//socket backlog
 	val int
 }
 
@@ -375,6 +376,7 @@ func listenerBacklog() int {
 	return listenerBacklogCache.val
 }
 
+// 监听抽象
 // A Listener is a generic network listener for stream-oriented protocols.
 //
 // Multiple goroutines may invoke methods on a Listener simultaneously.

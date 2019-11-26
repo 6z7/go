@@ -23,6 +23,7 @@ func sockaddrToTCP(sa syscall.Sockaddr) Addr {
 	return nil
 }
 
+//获取地址类型 AF_INET:IPV4  AF_INET6:IPV6
 func (a *TCPAddr) family() int {
 	if a == nil || len(a.IP) <= IPv4len {
 		return syscall.AF_INET
@@ -133,9 +134,12 @@ func spuriousENOTAVAIL(err error) bool {
 	return err == syscall.EADDRNOTAVAIL
 }
 
+//判断监听是否正常
 func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
 
+//接受请求连接
 func (ln *TCPListener) accept() (*TCPConn, error) {
+	//等待接收请求,将收到的请求封装成net fd
 	fd, err := ln.fd.accept()
 	if err != nil {
 		return nil, err
@@ -145,6 +149,7 @@ func (ln *TCPListener) accept() (*TCPConn, error) {
 		setKeepAlive(fd, true)
 		ka := ln.lc.KeepAlive
 		if ln.lc.KeepAlive == 0 {
+			//默认15s
 			ka = defaultTCPKeepAlive
 		}
 		setKeepAlivePeriod(fd, ka)
@@ -165,6 +170,7 @@ func (ln *TCPListener) file() (*os.File, error) {
 }
 
 func (sl *sysListener) listenTCP(ctx context.Context, laddr *TCPAddr) (*TCPListener, error) {
+	//根据地址获取网络文件描述符
 	fd, err := internetSocket(ctx, sl.network, laddr, nil, syscall.SOCK_STREAM, 0, "listen", sl.ListenConfig.Control)
 	if err != nil {
 		return nil, err

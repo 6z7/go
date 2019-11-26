@@ -222,8 +222,11 @@ func DialTCP(network string, laddr, raddr *TCPAddr) (*TCPConn, error) {
 
 // TCPListener is a TCP network listener. Clients should typically
 // use variables of type Listener instead of assuming TCP.
+// tcp监听
 type TCPListener struct {
+	//文件描述符
 	fd *netFD
+	//配置
 	lc ListenConfig
 }
 

@@ -51,6 +51,7 @@ func readProtocols() {
 // lookupProtocol looks up IP protocol name in /etc/protocols and
 // returns correspondent protocol number.
 func lookupProtocol(_ context.Context, name string) (int, error) {
+	//获取系统支持的网络协议
 	onceReadProtocols.Do(readProtocols)
 	return lookupProtocolMap(name)
 }

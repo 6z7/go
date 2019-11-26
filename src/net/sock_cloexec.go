@@ -17,7 +17,10 @@ import (
 
 // Wrapper around the socket system call that marks the returned file
 // descriptor as nonblocking and close-on-exec.
+// socket设置为SOCK_NONBLOCK SOCK_CLOEXEC
+// SOCK_CLOEXEC 在fork子进程中执行exec的时候，会清理掉父进程创建的socket
 func sysSocket(family, sotype, proto int) (int, error) {
+	//调用系统方法创建socket
 	s, err := socketFunc(family, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto)
 	// On Linux the SOCK_NONBLOCK and SOCK_CLOEXEC flags were
 	// introduced in 2.6.27 kernel and on FreeBSD both flags were

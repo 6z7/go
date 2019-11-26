@@ -6,6 +6,7 @@ package net
 
 import "syscall"
 
+//somaxconn 最大socket backlog
 func maxListenerBacklog() int {
 	fd, err := open("/proc/sys/net/core/somaxconn")
 	if err != nil {

@@ -38,6 +38,7 @@ const (
 
 const pollBlockSize = 4 * 1024
 
+// poll抽象结构
 // Network poller descriptor.
 //
 // No heap pointers.
@@ -54,10 +55,14 @@ type pollDesc struct {
 	// NOTE(dvyukov): the following code uses uintptr to store *g (rg/wg),
 	// that will blow up when GC starts moving objects.
 	lock    mutex // protects the following fields
+	//socket fd
 	fd      uintptr
+	//是否正在关闭
 	closing bool
+	//是否发生错误
 	everr   bool    // marks event scanning error happened
 	user    uint32  // user settable cookie
+	//read times
 	rseq    uintptr // protects from stale read timers
 	rg      uintptr // pdReady, pdWait, G waiting for read or nil
 	rt      timer   // read deadline timer (set if rt.f != nil)
@@ -70,6 +75,7 @@ type pollDesc struct {
 
 type pollCache struct {
 	lock  mutex
+	//
 	first *pollDesc
 	// PollDesc objects must be type-stable,
 	// because we can get ready notification from epoll/kqueue
@@ -79,11 +85,13 @@ type pollCache struct {
 }
 
 var (
+	//poll轮询调度是否初始化
 	netpollInited  uint32
 	pollcache      pollCache
 	netpollWaiters uint32
 )
 
+//创建epoll fd
 //go:linkname poll_runtime_pollServerInit internal/poll.runtime_pollServerInit
 func poll_runtime_pollServerInit() {
 	netpollinit()
@@ -109,6 +117,7 @@ func poll_runtime_isPollServerDescriptor(fd uintptr) bool {
 	}
 }
 
+// socket fd订阅epoll fd上指定的事件
 //go:linkname poll_runtime_pollOpen internal/poll.runtime_pollOpen
 func poll_runtime_pollOpen(fd uintptr) (*pollDesc, int) {
 	pd := pollcache.alloc()
@@ -131,6 +140,7 @@ func poll_runtime_pollOpen(fd uintptr) (*pollDesc, int) {
 	unlock(&pd.lock)
 
 	var errno int32
+	//socket fd关注epoll fd上指定的事件
 	errno = netpollopen(fd, pd)
 	return pd, int(errno)
 }
@@ -157,6 +167,7 @@ func (c *pollCache) free(pd *pollDesc) {
 	unlock(&c.lock)
 }
 
+//重置pollDesc
 //go:linkname poll_runtime_pollReset internal/poll.runtime_pollReset
 func poll_runtime_pollReset(pd *pollDesc, mode int) int {
 	err := netpollcheckerr(pd, int32(mode))
@@ -286,6 +297,7 @@ func poll_runtime_pollSetDeadline(pd *pollDesc, d int64, mode int) {
 	}
 }
 
+//
 //go:linkname poll_runtime_pollUnblock internal/poll.runtime_pollUnblock
 func poll_runtime_pollUnblock(pd *pollDesc) {
 	lock(&pd.lock)
@@ -495,6 +507,7 @@ func (c *pollCache) alloc() *pollDesc {
 		}
 		// Must be in non-GC memory because can be referenced
 		// only from epoll/kqueue internals.
+		//分配不可回收内存缓存pollDesc
 		mem := persistentalloc(n*pdSize, 0, &memstats.other_sys)
 		for i := uintptr(0); i < n; i++ {
 			pd := (*pollDesc)(add(mem, i*pdSize))

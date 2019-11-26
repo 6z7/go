@@ -9,20 +9,23 @@ package runtime
 import "unsafe"
 
 func epollcreate(size int32) int32
-func epollcreate1(flags int32) int32
+func epollcreate1(flags int32) int32  //sys_linux_amd64.s
 
 //go:noescape
-func epollctl(epfd, op, fd int32, ev *epollevent) int32
+func epollctl(epfd, op, fd int32, ev *epollevent) int32  //sys_linux_amd64.s
 
 //go:noescape
 func epollwait(epfd int32, ev *epollevent, nev, timeout int32) int32
-func closeonexec(fd int32)
+//epoll设置标志closeexec
+func closeonexec(fd int32)   //sys_linux_amd64.s
 
 var (
+	//epoll fd
 	epfd int32 = -1 // epoll descriptor
 )
-
+//创建epoll fd
 func netpollinit() {
+	//创建epoll fd
 	epfd = epollcreate1(_EPOLL_CLOEXEC)
 	if epfd >= 0 {
 		return
@@ -40,15 +43,25 @@ func netpolldescriptor() uintptr {
 	return uintptr(epfd)
 }
 
+//socket fd关注epoll fd上指定的事件
 func netpollopen(fd uintptr, pd *pollDesc) int32 {
 	var ev epollevent
-	ev.events = _EPOLLIN | _EPOLLOUT | _EPOLLRDHUP | _EPOLLET
+	// LT模式时，事件就绪时，假设对事件没做处理，内核会反复通知事件就绪(Level-triggered)
+	// ET模式时，事件就绪时，假设对事件没做处理，内核不会反复通知事件就绪(edge-triggered)
+	// EPOLLIN: 连接到达；有数据来临
+	// EPOLLOUT:有数据要写
+	// EPOLLRDHUP:断开连接
+	// EPOLLET: ET模式
+		ev.events = _EPOLLIN | _EPOLLOUT | _EPOLLRDHUP | _EPOLLET
 	*(**pollDesc)(unsafe.Pointer(&ev.data)) = pd
+	//socket fd关注epoll fd上指定的事件
 	return -epollctl(epfd, _EPOLL_CTL_ADD, int32(fd), &ev)
 }
 
+//删除fd已注册的event事件
 func netpollclose(fd uintptr) int32 {
 	var ev epollevent
+	//删除fd已注册的event事件
 	return -epollctl(epfd, _EPOLL_CTL_DEL, int32(fd), &ev)
 }
 

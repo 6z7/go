@@ -9,8 +9,10 @@ import "sync/atomic"
 // fdMutex is a specialized synchronization primitive that manages
 // lifetime of an fd and serializes access to Read, Write and Close
 // methods on FD.
+//操作fd时的互斥锁
 type fdMutex struct {
 	state uint64
+	//获取fd时,如果获取锁失败，则挂起g到这个地址
 	rsema uint32
 	wsema uint32
 }
@@ -114,6 +116,7 @@ func (mu *fdMutex) decref() bool {
 
 // lock adds a reference to mu and locks mu.
 // It reports whether mu is available for reading or writing.
+//获取fd的锁
 func (mu *fdMutex) rwlock(read bool) bool {
 	var mutexBit, mutexWait, mutexMask uint64
 	var mutexSema *uint32
@@ -130,12 +133,15 @@ func (mu *fdMutex) rwlock(read bool) bool {
 	}
 	for {
 		old := atomic.LoadUint64(&mu.state)
+		//fd已关闭
 		if old&mutexClosed != 0 {
 			return false
 		}
 		var new uint64
+		//锁还没有被获取
 		if old&mutexBit == 0 {
 			// Lock is free, acquire it.
+			// 可以获取锁
 			new = (old | mutexBit) + mutexRef
 			if new&mutexRefMask == 0 {
 				panic(overflowMsg)
@@ -151,6 +157,7 @@ func (mu *fdMutex) rwlock(read bool) bool {
 			if old&mutexBit == 0 {
 				return true
 			}
+			//挂起g
 			runtime_Semacquire(mutexSema)
 			// The signaller has subtracted mutexWait.
 		}
@@ -217,6 +224,7 @@ func (fd *FD) decref() error {
 
 // readLock adds a reference to fd and locks fd for reading.
 // It returns an error when fd cannot be used for reading.
+// 获取read fd的锁
 func (fd *FD) readLock() error {
 	if !fd.fdmu.rwlock(true) {
 		return errClosing(fd.isFile)
@@ -227,6 +235,8 @@ func (fd *FD) readLock() error {
 // readUnlock removes a reference from fd and unlocks fd for reading.
 // It also closes fd when the state of fd is set to closed and there
 // is no remaining reference.
+//释放获取到的rfd锁
+//如果fd已经关闭则销毁fd
 func (fd *FD) readUnlock() {
 	if fd.fdmu.rwunlock(true) {
 		fd.destroy()

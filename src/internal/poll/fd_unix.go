@@ -13,36 +13,46 @@ import (
 	"syscall"
 )
 
+// 文件描述符
 // FD is a file descriptor. The net and os packages use this type as a
 // field of a larger type representing a network connection or OS file.
 type FD struct {
 	// Lock sysfd and serialize access to Read and Write methods.
+	//操作fd时的互斥锁
 	fdmu fdMutex
 
 	// System file descriptor. Immutable until Close.
+	//操作系统文件描述符
+	//socket fd
 	Sysfd int
 
 	// I/O poller.
+	//I/O轮询
 	pd pollDesc
 
 	// Writev cache.
 	iovecs *[]syscall.Iovec
 
 	// Semaphore signaled when file is closed.
+	// fd关闭时的信号量
 	csema uint32
 
 	// Non-zero if this file has been set to blocking mode.
+	//!=0 阻塞模式
 	isBlocking uint32
 
 	// Whether this is a streaming descriptor, as opposed to a
 	// packet-based descriptor like a UDP socket. Immutable.
+	// 是否是tcp socket
 	IsStream bool
 
 	// Whether a zero byte read indicates EOF. This is false for a
 	// message based socket connection.
+	//是否读取到0字节标志结束
 	ZeroReadIsEOF bool
 
 	// Whether this is a file rather than a network socket.
+	//是否是file连接而不是socket
 	isFile bool
 }
 
@@ -51,19 +61,24 @@ type FD struct {
 // The net argument is a network name from the net package (e.g., "tcp"),
 // or "file".
 // Set pollable to true if fd should be managed by runtime netpoll.
+//net:网络类型  tcp,dup...
+//pollable:是否轮询
 func (fd *FD) Init(net string, pollable bool) error {
 	// We don't actually care about the various network types.
 	if net == "file" {
 		fd.isFile = true
 	}
 	if !pollable {
+		//不支持轮询阻塞模式
 		fd.isBlocking = 1
 		return nil
 	}
+	//轮询初始化
 	err := fd.pd.init(fd)
 	if err != nil {
 		// If we could not initialize the runtime poller,
 		// assume we are using blocking mode.
+		//设置为阻塞模式
 		fd.isBlocking = 1
 	}
 	return err
@@ -74,9 +89,11 @@ func (fd *FD) Init(net string, pollable bool) error {
 func (fd *FD) destroy() error {
 	// Poller may want to unregister fd in readiness notification mechanism,
 	// so this must be executed before CloseFunc.
+	//
 	fd.pd.close()
 	err := CloseFunc(fd.Sysfd)
 	fd.Sysfd = -1
+	//发出信号
 	runtime_Semrelease(&fd.csema)
 	return err
 }
@@ -364,16 +381,19 @@ func (fd *FD) WriteMsg(p []byte, oob []byte, sa syscall.Sockaddr) (int, int, err
 }
 
 // Accept wraps the accept network call.
+//等待接收请求
 func (fd *FD) Accept() (int, syscall.Sockaddr, string, error) {
 	if err := fd.readLock(); err != nil {
 		return -1, nil, "", err
 	}
 	defer fd.readUnlock()
 
+	//重置pollDesc
 	if err := fd.pd.prepareRead(fd.isFile); err != nil {
 		return -1, nil, "", err
 	}
 	for {
+		//等待接收请求
 		s, rsa, errcall, err := accept(fd.Sysfd)
 		if err == nil {
 			return s, rsa, "", err

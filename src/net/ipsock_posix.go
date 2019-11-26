@@ -108,6 +108,9 @@ func (p *ipStackCapabilities) probe() {
 // Note that the latest DragonFly BSD and OpenBSD kernels allow
 // neither "net.inet6.ip6.v6only=1" change nor IPPROTO_IPV6 level
 // IPV6_V6ONLY socket option setting.
+// 获取地址类型
+//network:网络类型 tcp udp...
+//mode:socket类型 listen
 func favoriteAddrFamily(network string, laddr, raddr sockaddr, mode string) (family int, ipv6only bool) {
 	switch network[len(network)-1] {
 	case '4':
@@ -132,11 +135,18 @@ func favoriteAddrFamily(network string, laddr, raddr sockaddr, mode string) (fam
 	}
 	return syscall.AF_INET6, false
 }
-
+//net:网络类型 tcp udp ...
+//laddr:本地地址
+//raddr:远程地址
+//sotype: socket配置  syscall.SOCK_STREAM
+//proto:
+//mode:socket类型 listen
+//ctrlFn:回调方法
 func internetSocket(ctx context.Context, net string, laddr, raddr sockaddr, sotype, proto int, mode string, ctrlFn func(string, string, syscall.RawConn) error) (fd *netFD, err error) {
 	if (runtime.GOOS == "aix" || runtime.GOOS == "windows" || runtime.GOOS == "openbsd" || runtime.GOOS == "nacl") && mode == "dial" && raddr.isWildcard() {
 		raddr = raddr.toLocal(net)
 	}
+	//地址类型
 	family, ipv6only := favoriteAddrFamily(net, laddr, raddr, mode)
 	return socket(ctx, net, family, sotype, proto, ipv6only, laddr, raddr, ctrlFn)
 }

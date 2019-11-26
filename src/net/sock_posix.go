@@ -15,7 +15,9 @@ import (
 
 // socket returns a network file descriptor that is ready for
 // asynchronous I/O using the network poller.
+// 返回一个网络描述符，用于异步IO操作
 func socket(ctx context.Context, net string, family, sotype, proto int, ipv6only bool, laddr, raddr sockaddr, ctrlFn func(string, string, syscall.RawConn) error) (fd *netFD, err error) {
+	//系统调用创建一个socket
 	s, err := sysSocket(family, sotype, proto)
 	if err != nil {
 		return nil, err
@@ -51,8 +53,10 @@ func socket(ctx context.Context, net string, family, sotype, proto int, ipv6only
 	// raddr is nil. Otherwise we assume it's just for dialers or
 	// the other connection holders.
 
+	//监听
 	if laddr != nil && raddr == nil {
 		switch sotype {
+		//tcp
 		case syscall.SOCK_STREAM, syscall.SOCK_SEQPACKET:
 			if err := fd.listenStream(laddr, listenerBacklog(), ctrlFn); err != nil {
 				fd.Close()
@@ -67,6 +71,7 @@ func socket(ctx context.Context, net string, family, sotype, proto int, ipv6only
 			return fd, nil
 		}
 	}
+	//连接服务
 	if err := fd.dial(ctx, laddr, raddr, ctrlFn); err != nil {
 		fd.Close()
 		return nil, err
@@ -172,12 +177,20 @@ func (fd *netFD) dial(ctx context.Context, laddr, raddr sockaddr, ctrlFn func(st
 	return nil
 }
 
+//tcp listen
+//laddr:监听地址
+//backlog：socket backlog
+//ctrlFn：回调
 func (fd *netFD) listenStream(laddr sockaddr, backlog int, ctrlFn func(string, string, syscall.RawConn) error) error {
 	var err error
+	//SO_REUSEADDR 配置端口复用
+	//当有一个有相同本地地址和端口的socket1处于TIME_WAIT状态时，而你启动的程序的socket2要占用该地址和端口。
+	//允许同一port上启动同一服务器的多个实例(多个进程)。但每个实例绑定的IP地址是不能相同的(多网卡)
 	if err = setDefaultListenerSockopts(fd.pfd.Sysfd); err != nil {
 		return err
 	}
 	var lsa syscall.Sockaddr
+	//地址转换
 	if lsa, err = laddr.sockaddr(fd.family); err != nil {
 		return err
 	}
@@ -186,20 +199,26 @@ func (fd *netFD) listenStream(laddr sockaddr, backlog int, ctrlFn func(string, s
 		if err != nil {
 			return err
 		}
+		//回调
 		if err := ctrlFn(fd.ctrlNetwork(), laddr.String(), c); err != nil {
 			return err
 		}
 	}
+	//bind
 	if err = syscall.Bind(fd.pfd.Sysfd, lsa); err != nil {
 		return os.NewSyscallError("bind", err)
 	}
+	//listen
 	if err = listenFunc(fd.pfd.Sysfd, backlog); err != nil {
 		return os.NewSyscallError("listen", err)
 	}
+	//初始化配置 配置轮询
 	if err = fd.init(); err != nil {
 		return err
 	}
+	//获取本地套接口的名字，包括它的IP和端口
 	lsa, _ = syscall.Getsockname(fd.pfd.Sysfd)
+	//更新本地监听地址
 	fd.setAddr(fd.addrFunc()(lsa), nil)
 	return nil
 }

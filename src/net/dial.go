@@ -15,6 +15,7 @@ import (
 // defaultTCPKeepAlive is a default constant value for TCPKeepAlive times
 // See golang.org/issue/31510
 const (
+	//默认tcp keepalive
 	defaultTCPKeepAlive = 15 * time.Second
 )
 
@@ -167,10 +168,11 @@ func (d *Dialer) fallbackDelay() time.Duration {
 
 func parseNetwork(ctx context.Context, network string, needsProto bool) (afnet string, proto int, err error) {
 	i := last(network, ':')
+	//没有冒号
 	if i < 0 { // no colon
 		switch network {
-		case "tcp", "tcp4", "tcp6":
-		case "udp", "udp4", "udp6":
+		case "tcp", "tcp4", "tcp6":  //不做处理
+		case "udp", "udp4", "udp6":  //不做处理
 		case "ip", "ip4", "ip6":
 			if needsProto {
 				return "", 0, UnknownNetworkError(network)
@@ -181,7 +183,9 @@ func parseNetwork(ctx context.Context, network string, needsProto bool) (afnet s
 		}
 		return network, 0, nil
 	}
+	//afnet 网络协议
 	afnet = network[:i]
+	// "ip", "ip4", "ip6"解析端口
 	switch afnet {
 	case "ip", "ip4", "ip6":
 		protostr := network[i+1:]
@@ -596,6 +600,7 @@ func (sd *sysDialer) dialSingle(ctx context.Context, ra Addr) (c Conn, err error
 	return c, nil
 }
 
+// 监听配置
 // ListenConfig contains options for listening to an address.
 type ListenConfig struct {
 	// If Control is not nil, it is called after creating the network
@@ -612,6 +617,9 @@ type ListenConfig struct {
 	// and operating system. Network protocols or operating systems
 	// that do not support keep-alives ignore this field.
 	// If negative, keep-alives are disabled.
+	//<0 禁用keep alive
+	//0 使用默认值15s  dial.go defaultTCPKeepAlive
+	//如果操作系统不支持则会忽略
 	KeepAlive time.Duration
 }
 
@@ -679,10 +687,14 @@ func (lc *ListenConfig) ListenPacket(ctx context.Context, network, address strin
 
 // sysListener contains a Listen's parameters and configuration.
 type sysListener struct {
+	//配置
 	ListenConfig
+	//协议,地址
 	network, address string
 }
 
+// 监听网络地址
+// 仅支持tcp,tcp4,tcp6,unix和unixpacket
 // Listen announces on the local network address.
 //
 // The network must be "tcp", "tcp4", "tcp6", "unix" or "unixpacket".

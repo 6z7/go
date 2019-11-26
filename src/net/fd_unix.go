@@ -15,24 +15,38 @@ import (
 	"time"
 )
 
+// 网络文件描述符
 // Network file descriptor.
 type netFD struct {
+	//文件描述符
 	pfd poll.FD
 
 	// immutable until Close
+	// 协议类型 ipv4 ipv6...
 	family      int
+	//socket配置  syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC...
 	sotype      int
 	isConnected bool // handshake completed or use of association with peer
+	//网络类型 tcp udp...
 	net         string
+	//本地地址
 	laddr       Addr
+	//远程地址
 	raddr       Addr
 }
 
+//sysfd:系统FD
+//family:地址类型 IPV4 IPV6
+//sotype:socket设置   syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC...
+//net:网络类型 tcp udp...
 func newFD(sysfd, family, sotype int, net string) (*netFD, error) {
 	ret := &netFD{
 		pfd: poll.FD{
+			//系统fd
 			Sysfd:         sysfd,
+			//是否是tcp socket
 			IsStream:      sotype == syscall.SOCK_STREAM,
+			//是否读取到0字节标志结束
 			ZeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 		},
 		family: family,
@@ -234,6 +248,7 @@ func (fd *netFD) writeMsg(p []byte, oob []byte, sa syscall.Sockaddr) (n int, oob
 	return n, oobn, wrapSyscallError("sendmsg", err)
 }
 
+//等待接收请求,将收到的请求封装成net fd
 func (fd *netFD) accept() (netfd *netFD, err error) {
 	d, rsa, errcall, err := fd.pfd.Accept()
 	if err != nil {

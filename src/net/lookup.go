@@ -60,8 +60,10 @@ var dnsWaitGroup sync.WaitGroup
 
 const maxProtoLength = len("RSVP-E2E-IGNORE") + 10 // with room to grow
 
+//根据名称查找协议编号
 func lookupProtocolMap(name string) (int, error) {
 	var lowerProtocol [maxProtoLength]byte
+	//返回copy的字节数
 	n := copy(lowerProtocol[:], name)
 	lowerASCIIBytes(lowerProtocol[:n])
 	proto, found := protocols[string(lowerProtocol[:n])]
