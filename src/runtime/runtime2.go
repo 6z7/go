@@ -372,6 +372,7 @@ type sudog struct {
 	parent      *sudog // semaRoot binary tree
 	waitlink    *sudog // g.waiting list or semaRoot
 	waittail    *sudog // semaRoot
+	//chan操作时触发挂起时 指向chan
 	c           *hchan // channel
 }
 
@@ -428,6 +429,7 @@ type g struct {
 	syscallsp      uintptr        // if status==Gsyscall, syscallsp = sched.sp to use during gc
 	syscallpc      uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc
 	stktopsp       uintptr        // expected sp at top of stack, to check in traceback
+	//唤醒时传递的参数
 	param          unsafe.Pointer // passed parameter on wakeup
 	//g的状态
 	atomicstatus   uint32
@@ -461,6 +463,7 @@ type g struct {
 	ancestors      *[]ancestorInfo // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
 	startpc        uintptr         // pc of goroutine function
 	racectx        uintptr
+	//g挂起时保存的当前信息
 	waiting        *sudog         // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
 	cgoCtxt        []uintptr      // cgo traceback context
 	labels         unsafe.Pointer // profiler labels

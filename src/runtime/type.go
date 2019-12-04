@@ -398,6 +398,7 @@ type arraytype struct {
 	len   uintptr
 }
 
+//代表chan类型
 type chantype struct {
 	typ  _type
 	elem *_type
