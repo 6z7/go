@@ -244,6 +244,7 @@ func deferproc(siz int32, fn *funcval) { // arguments of fn follow fn
 	// been set and must not be clobbered.
 }
 
+// 将新的defer加入LIFO队列
 // deferprocStack queues a new deferred function with a defer record on the stack.
 // The defer record must have its siz and fn fields initialized.
 // All other fields can contain junk.
@@ -485,6 +486,7 @@ func freedeferfn() {
 	throw("freedefer with d.fn != nil")
 }
 
+// 从LIFO队列中取出一个defer执行
 // Run a deferred function if there is one.
 // The compiler inserts a call to this at the end of any
 // function which calls defer.

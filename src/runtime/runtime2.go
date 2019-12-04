@@ -419,6 +419,7 @@ type g struct {
 	stackguard1 uintptr // offset known to liblink
 
 	_panic         *_panic // innermost panic - offset known to liblink
+	//defer
 	_defer         *_defer // innermost defer
 	// 此goroutine正在被哪个m执行
 	m              *m      // current m; offset known to arm liblink
@@ -852,17 +853,24 @@ func extendRandom(r []byte, n int) {
 // All defers are logically part of the stack, so write barriers to
 // initialize them are not required. All defers must be manually scanned,
 // and for heap defers, marked.
+// defer数据结构 结构需要与编译器中的对应结构一致
 type _defer struct {
 	siz     int32 // includes both arguments and results
 	started bool
 	heap    bool
+	//栈顶指针
 	sp      uintptr // sp at time of defer
+	//指针计数器
 	pc      uintptr
+	//指向需要执行的匿名函数
 	fn      *funcval
+	//panic信息
 	_panic  *_panic // panic that is running defer
+	//执行下一个需要执行的defer
 	link    *_defer
 }
 
+// panic结构
 // A _panic holds information about an active panic.
 //
 // This is marked go:notinheap because _panic values must only ever
