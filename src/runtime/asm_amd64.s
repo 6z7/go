@@ -602,13 +602,13 @@ TEXT ·publicationBarrier(SB),NOSPLIT,$0-0
 // 2. sub 5 bytes from the callers return
 // 3. jmp to the argument
 TEXT runtime·jmpdefer(SB), NOSPLIT, $0-16
-	MOVQ	fv+0(FP), DX	// fn
+	MOVQ	fv+0(FP), DX	// fn defer 的函数的地址
 	MOVQ	argp+8(FP), BX	// caller sp
 	LEAQ	-8(BX), SP	// caller sp after CALL
 	MOVQ	-8(SP), BP	// restore BP as if deferreturn returned (harmless if framepointers not in use)
-	SUBQ	$5, (SP)	// return to CALL again
+	SUBQ	$5, (SP)	// return to CALL again  call 指令长度为 5，因此通过将 ret addr 减 5，能够使 deferreturn 自动被反复调用
 	MOVQ	0(DX), BX
-	JMP	BX	// but first run the deferred function
+	JMP	BX	// but first run the deferred function  执行函数fn
 
 // Save state of caller into g->sched. Smashes R8, R9.
 TEXT gosave<>(SB),NOSPLIT,$0

@@ -144,7 +144,7 @@ func gogo(buf *gobuf)
 func gosave(buf *gobuf)
 
 //go:noescape
-func jmpdefer(fv *funcval, argp uintptr)
+func jmpdefer(fv *funcval, argp uintptr)  //asm_amd64.s
 func asminit()
 func setg(gg *g)
 func breakpoint()

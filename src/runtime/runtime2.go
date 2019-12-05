@@ -420,7 +420,7 @@ type g struct {
 	stackguard1 uintptr // offset known to liblink
 
 	_panic         *_panic // innermost panic - offset known to liblink
-	//defer
+	//当前g上关联的最新的defer
 	_defer         *_defer // innermost defer
 	// 此goroutine正在被哪个m执行
 	m              *m      // current m; offset known to arm liblink
@@ -848,6 +848,7 @@ func extendRandom(r []byte, n int) {
 	}
 }
 
+// defer数据结构 结构需要与编译器中的对应结构一致
 // A _defer holds an entry on the list of deferred calls.
 // If you add a field here, add code to clear it in freedefer.
 // This struct must match the code in cmd/compile/internal/gc/reflect.go:deferstruct
@@ -856,14 +857,16 @@ func extendRandom(r []byte, n int) {
 // All defers are logically part of the stack, so write barriers to
 // initialize them are not required. All defers must be manually scanned,
 // and for heap defers, marked.
-// defer数据结构 结构需要与编译器中的对应结构一致
 type _defer struct {
+	//函数的参数总大小包括返回值
 	siz     int32 // includes both arguments and results
+	//是否已经执行
 	started bool
+	//defer分配在堆上还是栈上
 	heap    bool
-	//栈顶指针
+	// 存储调用 defer 函数的函数的 sp 寄存器值
 	sp      uintptr // sp at time of defer
-	//指针计数器
+	//存储 call deferproc 的下一条汇编指令的指令地址
 	pc      uintptr
 	//指向需要执行的匿名函数
 	fn      *funcval

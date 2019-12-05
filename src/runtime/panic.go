@@ -199,6 +199,8 @@ func panicmem() {
 	panic(memoryError)
 }
 
+// defer分配在堆上(编译时逃逸分析后决定是分配在堆上还是栈上)
+//https://github.com/golang/go/commit/fff4f599fe1c21e411a99de5c9b3777d06ce0ce6
 // Create a new deferred function fn with siz bytes of arguments.
 // The compiler turns a defer statement into a call to this.
 //go:nosplit
@@ -244,6 +246,8 @@ func deferproc(siz int32, fn *funcval) { // arguments of fn follow fn
 	// been set and must not be clobbered.
 }
 
+// defer分配在栈上(编译时逃逸分析后决定是分配在堆上还是栈上)
+//https://github.com/golang/go/commit/fff4f599fe1c21e411a99de5c9b3777d06ce0ce6
 // 将新的defer加入LIFO队列
 // deferprocStack queues a new deferred function with a defer record on the stack.
 // The defer record must have its siz and fn fields initialized.
@@ -280,6 +284,24 @@ func deferprocStack(d *_defer) {
 	*(*uintptr)(unsafe.Pointer(&d.link)) = uintptr(unsafe.Pointer(gp._defer))
 	*(*uintptr)(unsafe.Pointer(&gp._defer)) = uintptr(unsafe.Pointer(d))
 
+	//  0x0036 00054 (demo2.go:6)	MOVQ	AX, (SP)
+	//	0x003a 00058 (demo2.go:6)	CALL	runtime.deferprocStack(SB)
+	//	0x003f 00063 (demo2.go:6)	TESTL	AX, AX
+	//	0x0041 00065 (demo2.go:6)	JNE	85
+	//	0x0043 00067 (demo2.go:6)	JMP	69
+	//	0x0045 00069 (demo2.go:9)	XCHGL	AX, AX
+	//	0x0046 00070 (demo2.go:9)	CALL	runtime.deferreturn(SB)
+	//	0x004b 00075 (demo2.go:9)	MOVQ	64(SP), BP
+	//	0x0050 00080 (demo2.go:9)	ADDQ	$72, SP
+	//	0x0054 00084 (demo2.go:9)	RET
+	//	0x0055 00085 (demo2.go:6)	XCHGL	AX, AX
+	//	0x0056 00086 (demo2.go:6)	CALL	runtime.deferreturn(SB)
+	//	0x005b 00091 (demo2.go:6)	MOVQ	64(SP), BP
+	//	0x0060 00096 (demo2.go:6)	ADDQ	$72, SP
+	//	0x0064 00100 (demo2.go:6)	RET
+	//	0x0065 00101 (demo2.go:6)	NOP
+
+	//隐式返回0  编译器生产的代码会插入判断，当程序发生 panic 之后会返回非0
 	return0()
 	// No code can go here - the C return register has
 	// been set and must not be clobbered.
@@ -363,7 +385,7 @@ func init() {
 // stack map information when this is called.
 //
 //go:nosplit
-func newdefer(siz int32) *_defer {
+	func newdefer(siz int32) *_defer {
 	var d *_defer
 	sc := deferclass(uintptr(siz))
 	gp := getg()
