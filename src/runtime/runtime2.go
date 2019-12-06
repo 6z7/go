@@ -728,8 +728,10 @@ type schedt struct {
 	//全局保存代表挂起的g的对象缓存
 	sudogcache *sudog
 
+	//defer缓存锁
 	// Central pool of available defer structs of different sizes.
 	deferlock mutex
+	//defer缓存
 	deferpool [5]*_defer
 
 	// freem is the list of m's waiting to be freed when their
@@ -872,7 +874,7 @@ type _defer struct {
 	fn      *funcval
 	//panic信息
 	_panic  *_panic // panic that is running defer
-	//执行下一个需要执行的defer
+	//下一个需要执行的defer
 	link    *_defer
 }
 

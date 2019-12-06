@@ -219,6 +219,7 @@ func deferproc(siz int32, fn *funcval) { // arguments of fn follow fn
 	argp := uintptr(unsafe.Pointer(&fn)) + unsafe.Sizeof(fn)
 	callerpc := getcallerpc()
 
+	//创建defer
 	d := newdefer(siz)
 	if d._panic != nil {
 		throw("deferproc: d.panic != nil after newdefer")
@@ -389,13 +390,17 @@ func init() {
 	var d *_defer
 	sc := deferclass(uintptr(siz))
 	gp := getg()
+	//deferpool    [5][]*_defer
+	//如果参数大小<5使用缓存
 	if sc < uintptr(len(p{}.deferpool)) {
 		pp := gp.m.p.ptr()
+		//如果P上没有deferpool缓存，则从全局sched.deferpool转移一部分到P上
 		if len(pp.deferpool[sc]) == 0 && sched.deferpool[sc] != nil {
 			// Take the slow path on the system stack so
 			// we don't grow newdefer's stack.
 			systemstack(func() {
 				lock(&sched.deferlock)
+				//最多转移一半
 				for len(pp.deferpool[sc]) < cap(pp.deferpool[sc])/2 && sched.deferpool[sc] != nil {
 					d := sched.deferpool[sc]
 					sched.deferpool[sc] = d.link
@@ -411,6 +416,7 @@ func init() {
 			pp.deferpool[sc] = pp.deferpool[sc][:n-1]
 		}
 	}
+	//参数大小大于>=5直接分配内存
 	if d == nil {
 		// Allocate new defer+args.
 		systemstack(func() {
@@ -428,8 +434,10 @@ func init() {
 		}
 	}
 	d.siz = siz
+	//分配在堆上
 	d.heap = true
 	d.link = gp._defer
+	//defer保存到g上
 	gp._defer = d
 	return d
 }
