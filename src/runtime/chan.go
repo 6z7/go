@@ -318,7 +318,7 @@ func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	}
 	//elem是接收者保存接收值的指针,close时会清空elem
 	if sg.elem != nil {
-		//直接copy到sg.elem
+		//直接copy到接收者(sg.elem中保存的是接收者)
 		sendDirect(c.elemtype, sg, ep)
 		sg.elem = nil
 	}
@@ -561,7 +561,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 		return false, false
 	}
 
-	//没有数据可以接收，则挂起当个g
+	//没有数据可以接收，则挂起当前g
 	// no sender available: block on this channel.
 	gp := getg()
 	mysg := acquireSudog()
@@ -571,7 +571,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	}
 	// No stack splits between assigning elem and enqueuing mysg
 	// on gp.waiting where copystack can find it.
-	//被发送者唤醒时ep会赋值
+	//保存接收者,唤醒时使用
 	mysg.elem = ep
 	mysg.waitlink = nil
 	gp.waiting = mysg
@@ -653,15 +653,17 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		// copy data from sender to queue
 		//qp位置处的值已经被消费 复制给了ep
 		//从sender中copy数据到缓冲中
-		//从缓冲队列头部开始取值,并将发送者的数据保存到队列中,此时缓冲数量没有变换
+		//从缓冲队列c.recvx处取出值,并将发送者的数据保存到队列中,此时缓冲数量没有变换
 		typedmemmove(c.elemtype, qp, sg.elem)
 		//消费者位置+1
 		c.recvx++
-		//缓冲已满
+		//缓冲消息被消费完，则从头开始
 		if c.recvx == c.dataqsiz {
 			c.recvx = 0
 		}
-		//缓冲已满时c.recvx=0, [0,c.recvx)之间还保存数据,此时c.sendx需要设置为c.recvx  [c.recvx,c.dataqsiz)范围用户缓冲数据
+		//缓冲已满时发送者会将c.sendx = 0,即此处c.sendx=0
+		//c.recvx是缓冲中下次被访问的位置，空出来后可以给发送者使用，
+		//所以将发送者的位置设置为下次空出来的位置
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
 	}
 	sg.elem = nil
