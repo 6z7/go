@@ -275,6 +275,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	}
 	gp.waiting = nil
 	//唤醒后检查chan是否已经被关闭,close时会清空该标志
+	//所以关闭时如果有发送者被挂起close后唤醒时会触发panic
 	if gp.param == nil {
 		if c.closed == 0 {
 			throw("chansend: spurious wakeup")
