@@ -27,6 +27,7 @@ const (
 // ../cmd/compile/internal/gc/reflect.go:/^func.dcommontype and
 // ../reflect/type.go:/^type.rtype.
 type _type struct {
+	//类型大小 占用字节
 	size       uintptr
 	ptrdata    uintptr // size of memory prefix holding all pointers
 	hash       uint32

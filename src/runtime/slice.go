@@ -31,7 +31,10 @@ func panicmakeslicecap() {
 	panic(errorString("makeslice: cap out of range"))
 }
 
+//make创建切片
+// et:封装了切片信息  len:切片长度 cap:切片容量
 func makeslice(et *_type, len, cap int) unsafe.Pointer {
+	//容量*每个类型占用的字节   判断是否内存溢出
 	mem, overflow := math.MulUintptr(et.size, uintptr(cap))
 	if overflow || mem > maxAlloc || len < 0 || len > cap {
 		// NOTE: Produce a 'len out of range' error instead of a
@@ -45,7 +48,7 @@ func makeslice(et *_type, len, cap int) unsafe.Pointer {
 		}
 		panicmakeslicecap()
 	}
-
+    //分配对象内存 返回指针地址
 	return mallocgc(mem, et, true)
 }
 
