@@ -97,13 +97,15 @@ func mapassign_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 		callerpc := getcallerpc()
 		racewritepc(unsafe.Pointer(h), callerpc, funcPC(mapassign_fast64))
 	}
+	//是否正则计算hash
 	if h.flags&hashWriting != 0 {
 		throw("concurrent map writes")
 	}
+	//计算key的hash
 	hash := t.hasher(noescape(unsafe.Pointer(&key)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapassign.
-	h.flags ^= hashWriting
+	h.flags ^= hashWriting   //移除标记
 
 	if h.buckets == nil {
 		h.buckets = newobject(t.bucket) // newarray(t.bucket, 1)
@@ -111,6 +113,7 @@ func mapassign_fast64(t *maptype, h *hmap, key uint64) unsafe.Pointer {
 
 again:
 	bucket := hash & bucketMask(h.B)
+	//是否在扩容
 	if h.growing() {
 		growWork_fast64(t, h, bucket)
 	}

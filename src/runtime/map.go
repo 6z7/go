@@ -4,6 +4,21 @@
 
 package runtime
 
+import "unsafe"
+
+// map是一个hashtable,数据被保存到bucket数组中，每个bucket包含8个kv键值对.
+
+// hash的低阶位用于选择bucket,hash的高阶位用于区分同一个bucket中不同的kv
+
+// 如果bucket中超过了8个kv，则通过链表的方式创建新的buket
+
+// 当hashtable库容时，将bucket数组扩容2倍，bucket增量从旧的bucket数组数值到新的数组.
+// go会在每次读写Map时以桶为单位做动态搬迁疏散
+
+// map迭代器遍历bucket数组，按照遍历顺序返回key。为了维护迭代语义，我们不会移动bucket中的key.
+//当扩容时，迭代器仍然遍历旧的bucket数组，当遇到被标记为"转移"的buket时需要去新的bucket中遍历
+
+//负载因子:
 // This file contains the implementation of Go's map type.
 //
 // A map is just a hash table. The data is arranged
@@ -116,9 +131,11 @@ type hmap struct {
 	// Note: the format of the hmap is also encoded in cmd/compile/internal/gc/reflect.go.
 	// Make sure this stays in sync with the compiler's definition.
 	count     int // # live cells == size of map.  Must be first (used by len() builtin)
+	//标识 常量定义  iterator  hashWriting ...
 	flags     uint8
 	B         uint8  // log_2 of # of buckets (can hold up to loadFactor * 2^B items)
 	noverflow uint16 // approximate number of overflow buckets; see incrnoverflow for details
+	//hash种子 一个随机数
 	hash0     uint32 // hash seed
 
 	buckets    unsafe.Pointer // array of 2^B Buckets. may be nil if count==0.
@@ -289,6 +306,7 @@ func makemap64(t *maptype, hint int64, h *hmap) *hmap {
 // makemap_small implements Go map creation for make(map[k]v) and
 // make(map[k]v, hint) when hint is known to be at most bucketCnt
 // at compile time and the map needs to be allocated on the heap.
+// make(map[k]v, hint)当hint<=8时
 func makemap_small() *hmap {
 	h := new(hmap)
 	h.hash0 = fastrand()
@@ -1077,6 +1095,7 @@ func tooManyOverflowBuckets(noverflow uint16, B uint8) bool {
 	return noverflow >= uint16(1)<<(B&15)
 }
 
+// 是否正在扩容
 // growing reports whether h is growing. The growth may be to the same size or bigger.
 func (h *hmap) growing() bool {
 	return h.oldbuckets != nil
