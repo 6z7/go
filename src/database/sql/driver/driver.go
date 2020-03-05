@@ -32,6 +32,7 @@ import (
 type Value interface{}
 
 // NamedValue holds both the value name and value.
+// 保存参数的名字和值
 type NamedValue struct {
 	// If the Name is not empty it should be used for the parameter identifier and
 	// not the ordinal position.
@@ -348,6 +349,13 @@ var ErrRemoveArgument = errors.New("driver: remove argument from query")
 // If ErrSkip is returned the column converter error checking
 // path is used for the argument. Drivers may wish to return ErrSkip after
 // they have exhausted their own special cases.
+
+// Con和Stmt可选的实现改该接口，它可以让驱动处理超过默认允许的Go和数据库类型
+//
+// sql包校验参数值的顺序,找到第一个匹配项就会停止:Stmt.NamedValueChecker,Conn.NamedValueChecker,Stmt.ColumnConverter, DefaultParameterConverter
+// 如果CheckNamedValue返回了ErrRemoveArgument，被检查的NamedValuej将会被从最终的查询参数中移除
+//
+// 如果返回了ErrSkip，ColumnConverter将会被执行
 type NamedValueChecker interface {
 	// CheckNamedValue is called before passing arguments to the driver
 	// and is called in place of any ColumnConverter. CheckNamedValue must do type
