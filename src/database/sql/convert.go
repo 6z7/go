@@ -26,6 +26,7 @@ func describeNamedValue(nv *driver.NamedValue) string {
 	return fmt.Sprintf("with name %q", nv.Name)
 }
 
+// 验证名称是否有效
 func validateNamedValueName(name string) error {
 	if len(name) == 0 {
 		return nil
@@ -104,7 +105,7 @@ func defaultCheckNamedValue(nv *driver.NamedValue) (err error) {
 // The statement ds may be nil, if no statement is available.
 //
 // ci must be locked.
-// 将查询参数转为驱动支持的类型
+// 将查询参数转为NamedValue类型
 func driverArgsConnLocked(ci driver.Conn, ds *driverStmt, args []interface{}) ([]driver.NamedValue, error) {
 	nvargs := make([]driver.NamedValue, len(args))
 
@@ -126,10 +127,13 @@ func driverArgsConnLocked(ci driver.Conn, ds *driverStmt, args []interface{}) ([
 	// Drivers may opt to use the NamedValueChecker for special
 	// argument types, then return driver.ErrSkip to pass it along
 	// to the column converter.
+	// stmt是否实现了 NamedValueChecker接口
 	nvc, ok := si.(driver.NamedValueChecker)
 	if !ok {
+		// stmt是否实现了 NamedValueChecker接口
 		nvc, ok = ci.(driver.NamedValueChecker)
 	}
+	// stmt是否实现了ColumnConverter接口，该接口已废弃使用NamedValueChecker替换
 	cci, ok := si.(driver.ColumnConverter)
 	if ok {
 		cc.cci = cci
@@ -176,7 +180,7 @@ func driverArgsConnLocked(ci driver.Conn, ds *driverStmt, args []interface{}) ([
 		}
 
 	nextCheck:
-		err = checker(nv)
+		err = checker(nv)  //检查参数
 		switch err {
 		case nil:
 			n++
@@ -184,7 +188,7 @@ func driverArgsConnLocked(ci driver.Conn, ds *driverStmt, args []interface{}) ([
 		case driver.ErrRemoveArgument:
 			nvargs = nvargs[:len(nvargs)-1]
 			continue
-		case driver.ErrSkip:
+		case driver.ErrSkip: //标志当前接口不可用，继续进行其它的
 			if nextCC {
 				nextCC = false
 				checker = cc.CheckNamedValue

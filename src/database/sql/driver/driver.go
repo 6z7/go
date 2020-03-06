@@ -112,6 +112,7 @@ type Connector interface {
 // package should continue as if the optional interface was not
 // implemented. ErrSkip is only supported where explicitly
 // documented.
+// ErrSkip标志某些可选接口的方法不可用，告诉sql包应该继续进行就像这个可选接口不存在一样
 var ErrSkip = errors.New("driver: skip fast-path; continue as if unimplemented")
 
 // ErrBadConn should be returned by a driver to signal to the sql
@@ -159,6 +160,9 @@ type Execer interface {
 // ExecerContext may return ErrSkip.
 //
 // ExecerContext must honor the context timeout and return when the context is canceled.
+// Conn实现的一个可选接口
+// 如果Conn未实现ExecerContext接口，sql包将会调用Execer接口，如果Conn也未实现Execer接口，DB.Exec将会
+// 创建一个prepare stmt进行操作
 type ExecerContext interface {
 	ExecContext(ctx context.Context, query string, args []NamedValue) (Result, error)
 }
@@ -311,6 +315,7 @@ type Stmt interface {
 }
 
 // StmtExecContext enhances the Stmt interface by providing Exec with context.
+// stmt的增强接口
 type StmtExecContext interface {
 	// ExecContext executes a query that doesn't return rows, such
 	// as an INSERT or UPDATE.
@@ -350,7 +355,7 @@ var ErrRemoveArgument = errors.New("driver: remove argument from query")
 // path is used for the argument. Drivers may wish to return ErrSkip after
 // they have exhausted their own special cases.
 
-// Con和Stmt可选的实现改该接口，它可以让驱动处理超过默认允许的Go和数据库类型
+// Con和Stmt可选的实现该接口，它可以让驱动处理超过默认允许的Go和数据库类型
 //
 // sql包校验参数值的顺序,找到第一个匹配项就会停止:Stmt.NamedValueChecker,Conn.NamedValueChecker,Stmt.ColumnConverter, DefaultParameterConverter
 // 如果CheckNamedValue返回了ErrRemoveArgument，被检查的NamedValuej将会被从最终的查询参数中移除

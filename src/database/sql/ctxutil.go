@@ -10,6 +10,7 @@ import (
 	"errors"
 )
 
+// 根据驱动实现的接口情况进行调用
 func ctxDriverPrepare(ctx context.Context, ci driver.Conn, query string) (driver.Stmt, error) {
 	if ciCtx, is := ci.(driver.ConnPrepareContext); is {
 		return ciCtx.PrepareContext(ctx, query)
@@ -134,6 +135,7 @@ func ctxDriverBegin(ctx context.Context, opts *TxOptions, ci driver.Conn) (drive
 	return txi, err
 }
 
+//NamedValue类型转为Value类型，不支持命名参数查询
 func namedValueToValue(named []driver.NamedValue) ([]driver.Value, error) {
 	dargs := make([]driver.Value, len(named))
 	for n, param := range named {

@@ -1512,6 +1512,7 @@ func (db *DB) execDC(ctx context.Context, dc *driverConn, release func(error), q
 		var nvdargs []driver.NamedValue
 		var resi driver.Result
 		withLock(dc, func() {
+			//解析参数转为NamedValue类型
 			nvdargs, err = driverArgsConnLocked(dc.ci, nil, args)
 			if err != nil {
 				return
@@ -2427,6 +2428,7 @@ func resultFromStatement(ctx context.Context, ci driver.Conn, ds *driverStmt, ar
 	ds.Lock()
 	defer ds.Unlock()
 
+	//将查询参数转为NamedValue类型
 	dargs, err := driverArgsConnLocked(ci, ds, args)
 	if err != nil {
 		return nil, err
