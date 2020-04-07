@@ -289,6 +289,7 @@ func (d *durationValue) String() string { return (*time.Duration)(d).String() }
 // The flag package may call the String method with a zero-valued receiver,
 // such as a nil pointer.
 type Value interface {
+	// 获取值
 	String() string
 	Set(string) error
 }
@@ -321,17 +322,24 @@ type FlagSet struct {
 	// on the ErrorHandling setting; for the command line, this defaults
 	// to ExitOnError, which exits the program after calling Usage.
 	Usage func()
-
+    // 起个名称
 	name          string
+	// 是否已经解析
 	parsed        bool
+	// 解析后实际生效的参数标志
 	actual        map[string]*Flag
+	// 设置的参数标志
 	formal        map[string]*Flag
+	// 所有参数
 	args          []string // arguments after flags
+	// 错误处理方式
 	errorHandling ErrorHandling
+	// 输出
 	output        io.Writer // nil means stderr; use out() accessor
 }
 
 // A Flag represents the state of a flag.
+// 保存flag的信息结构
 type Flag struct {
 	Name     string // name as it appears on command line
 	Usage    string // help message
@@ -887,10 +895,12 @@ func (f *FlagSet) parseOne() (bool, error) {
 	if len(f.args) == 0 {
 		return false, nil
 	}
+	// 第一个参数
 	s := f.args[0]
 	if len(s) < 2 || s[0] != '-' {
 		return false, nil
 	}
+	// 减号"-"的数量
 	numMinuses := 1
 	if s[1] == '-' {
 		numMinuses++
@@ -899,12 +909,14 @@ func (f *FlagSet) parseOne() (bool, error) {
 			return false, nil
 		}
 	}
+	// 参数名字
 	name := s[numMinuses:]
 	if len(name) == 0 || name[0] == '-' || name[0] == '=' {
 		return false, f.failf("bad flag syntax: %s", s)
 	}
 
 	// it's a flag. does it have an argument?
+	// 移除输入的参数中的名称
 	f.args = f.args[1:]
 	hasValue := false
 	value := ""
