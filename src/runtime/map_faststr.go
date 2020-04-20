@@ -211,6 +211,7 @@ func mapassign_faststr(t *maptype, h *hmap, s string) unsafe.Pointer {
 		throw("concurrent map writes")
 	}
 	key := stringStructOf(&s)
+	// hash(key)
 	hash := t.hasher(noescape(unsafe.Pointer(&s)), uintptr(h.hash0))
 
 	// Set hashWriting after calling t.hasher for consistency with mapassign.
@@ -221,20 +222,26 @@ func mapassign_faststr(t *maptype, h *hmap, s string) unsafe.Pointer {
 	}
 
 again:
+	// key所属的bucket
 	bucket := hash & bucketMask(h.B)
 	if h.growing() {
 		growWork_faststr(t, h, bucket)
 	}
+	// key所数bucket的指针
 	b := (*bmap)(unsafe.Pointer(uintptr(h.buckets) + bucket*uintptr(t.bucketsize)))
 	top := tophash(hash)
 
+	//保存key的bucket
 	var insertb *bmap
+	//key保存buccket中的哪个位置
 	var inserti uintptr
 	var insertk unsafe.Pointer
 
 bucketloop:
 	for {
+		// 遍历bucket中的8个项
 		for i := uintptr(0); i < bucketCnt; i++ {
+			// 比较高8位是否相等，用于快速判断
 			if b.tophash[i] != top {
 				if isEmpty(b.tophash[i]) && insertb == nil {
 					insertb = b
@@ -245,7 +252,13 @@ bucketloop:
 				}
 				continue
 			}
+			// 到这里说明在当前bucket找到了高8字节相同的条目了
+
+			// dataOffset=8 hmap中kv偏移位置
+			// 2*sys.PtrSize string类型占用的字节
+			// bucket中对应项的key位置
 			k := (*stringStruct)(add(unsafe.Pointer(b), dataOffset+i*2*sys.PtrSize))
+			//高8字节相同的情况下，还要比较是否hash key是否完全一致
 			if k.len != key.len {
 				continue
 			}
@@ -253,10 +266,12 @@ bucketloop:
 				continue
 			}
 			// already have a mapping for key. Update it.
+			// 找到对应的key
 			inserti = i
 			insertb = b
 			goto done
 		}
+		// 下一个溢出bucket位置
 		ovf := b.overflow(t)
 		if ovf == nil {
 			break
@@ -286,6 +301,7 @@ bucketloop:
 	h.count++
 
 done:
+	// key保存的位置
 	elem := add(unsafe.Pointer(insertb), dataOffset+bucketCnt*2*sys.PtrSize+inserti*uintptr(t.elemsize))
 	if h.flags&hashWriting == 0 {
 		throw("concurrent map writes")

@@ -114,6 +114,7 @@ const (
 	// flags
 	iterator     = 1 // there may be an iterator using buckets
 	oldIterator  = 2 // there may be an iterator using oldbuckets
+	// goroutine正在操作map
 	hashWriting  = 4 // a goroutine is writing to the map
 	sameSizeGrow = 8 // the current map growth is to a new map of the same size
 
@@ -127,19 +128,26 @@ func isEmpty(x uint8) bool {
 }
 
 // A header for a Go map.
+// hash map
 type hmap struct {
 	// Note: the format of the hmap is also encoded in cmd/compile/internal/gc/reflect.go.
 	// Make sure this stays in sync with the compiler's definition.
+	// map中的元素个数
 	count     int // # live cells == size of map.  Must be first (used by len() builtin)
 	//标识 常量定义  iterator  hashWriting ...
 	flags     uint8
+	// hashtable中bucket数量2^B
+	// 负载因子计算 loadFactor * 2^B
 	B         uint8  // log_2 of # of buckets (can hold up to loadFactor * 2^B items)
+	// 溢出bucket数量
 	noverflow uint16 // approximate number of overflow buckets; see incrnoverflow for details
 	//hash种子 一个随机数
 	hash0     uint32 // hash seed
-
+    // 指向bucket数组的指针
 	buckets    unsafe.Pointer // array of 2^B Buckets. may be nil if count==0.
+	// growing 时保存原buckets的指针
 	oldbuckets unsafe.Pointer // previous bucket array of half the size, non-nil only when growing
+    // growing 时已迁移的个数
 	nevacuate  uintptr        // progress counter for evacuation (buckets less than this have been evacuated)
 
 	extra *mapextra // optional fields
@@ -163,11 +171,18 @@ type mapextra struct {
 }
 
 // A bucket for a Go map.
+// hashmap中每个bucket数组中的bucket结构
 type bmap struct {
 	// tophash generally contains the top byte of the hash value
 	// for each key in this bucket. If tophash[0] < minTopHash,
 	// tophash[0] is a bucket evacuation state instead.
+	// top hash通常包含该bucket中每个键的hash值的高八位。
+	// 如果tophash[0]小于mintophash，则tophash[0]为桶疏散状态
+	// hash(key)的前8位
 	tophash [bucketCnt]uint8
+	// 后面是8个key和value 存储格式：k1k2...k8v1v2...v8, 避免了因为cpu要求固定长度读取，字节对齐，造成的空间浪费
+	// 后边是一个overflow指针
+	//
 	// Followed by bucketCnt keys and then bucketCnt elems.
 	// NOTE: packing all the keys together and then all the elems together makes the
 	// code a bit more complicated than alternating key/elem/key/elem/... but it allows
@@ -203,11 +218,13 @@ func bucketShift(b uint8) uintptr {
 }
 
 // bucketMask returns 1<<b - 1, optimized for code generation.
+// 2^B-1
 func bucketMask(b uint8) uintptr {
 	return bucketShift(b) - 1
 }
 
 // tophash calculates the tophash value for hash.
+// hash key的高8位
 func tophash(hash uintptr) uint8 {
 	top := uint8(hash >> (sys.PtrSize*8 - 8))
 	if top < minTopHash {
@@ -221,6 +238,7 @@ func evacuated(b *bmap) bool {
 	return h > emptyOne && h < minTopHash
 }
 
+// bucket中指向下一个溢出bucket的指针
 func (b *bmap) overflow(t *maptype) *bmap {
 	return *(**bmap)(add(unsafe.Pointer(b), uintptr(t.bucketsize)-sys.PtrSize))
 }
@@ -1083,6 +1101,7 @@ func overLoadFactor(count int, B uint8) bool {
 // tooManyOverflowBuckets reports whether noverflow buckets is too many for a map with 1<<B buckets.
 // Note that most of these overflow buckets must be in sparse use;
 // if use was dense, then we'd have already triggered regular map growth.
+// noverflow>=2^B  则溢出bucket过多 ,B最大15
 func tooManyOverflowBuckets(noverflow uint16, B uint8) bool {
 	// If the threshold is too low, we do extraneous work.
 	// If the threshold is too high, maps that grow and shrink can hold on to lots of unused memory.
