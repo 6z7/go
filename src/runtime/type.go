@@ -29,6 +29,7 @@ const (
 type _type struct {
 	//类型大小 占用字节
 	size       uintptr
+	// 预分配的内存
 	ptrdata    uintptr // size of memory prefix holding all pointers
 	hash       uint32
 	tflag      tflag
@@ -368,8 +369,11 @@ type maptype struct {
 	bucket *_type // internal type representing a hash bucket
 	// function for hashing keys (ptr to key, seed) -> hash
 	hasher     func(unsafe.Pointer, uintptr) uintptr
+	// 一个key所占字节数
 	keysize    uint8  // size of key slot
+	// 一个值所占字节数
 	elemsize   uint8  // size of elem slot
+	// bucket大小
 	bucketsize uint16 // size of bucket
 	flags      uint32
 }

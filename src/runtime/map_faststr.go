@@ -239,7 +239,7 @@ again:
 
 bucketloop:
 	for {
-		// 遍历bucket中的8个项
+		// 遍历bucket中的8个kv
 		for i := uintptr(0); i < bucketCnt; i++ {
 			// 比较高8位是否相等，用于快速判断
 			if b.tophash[i] != top {
@@ -283,13 +283,16 @@ bucketloop:
 
 	// If we hit the max load factor or we have too many overflow buckets,
 	// and we're not already in the middle of growing, start growing.
+	// 达到最大负载或bucket溢出超过阀值 但是还没开始扩容 则尝试扩容
 	if !h.growing() && (overLoadFactor(h.count+1, h.B) || tooManyOverflowBuckets(h.noverflow, h.B)) {
-		hashGrow(t, h)
+		hashGrow(t, h)  // 扩容
 		goto again // Growing the table invalidates everything, so try again
 	}
 
+	// key对应的bucket已满，则创建一个溢出bucet
 	if insertb == nil {
 		// all current buckets are full, allocate a new one.
+		// 创建一个溢出bucket
 		insertb = h.newoverflow(t, b)
 		inserti = 0 // not necessary, but avoids needlessly spilling inserti
 	}
@@ -301,7 +304,10 @@ bucketloop:
 	h.count++
 
 done:
-	// key保存的位置
+	// key对应的value保存位置
+	// dataOffset:kv偏移位置
+	// bucketCnt*2*sys.PtrSize:跳过k的位置
+	// inserti*uintptr(t.elemsize):key对应的value位置
 	elem := add(unsafe.Pointer(insertb), dataOffset+bucketCnt*2*sys.PtrSize+inserti*uintptr(t.elemsize))
 	if h.flags&hashWriting == 0 {
 		throw("concurrent map writes")
@@ -407,7 +413,9 @@ func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
 }
 
 func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
+	// key在旧的bucket数组中位置
 	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
+	// 旧的bucket大小减小一半
 	newbit := h.noldbuckets()
 	if !evacuated(b) {
 		// TODO: reuse overflow buckets instead of using new ones, if there

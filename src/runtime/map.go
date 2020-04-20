@@ -109,6 +109,7 @@ const (
 	evacuatedX     = 2 // key/elem is valid.  Entry has been evacuated to first half of larger table.
 	evacuatedY     = 3 // same as above, but evacuated to second half of larger table.
 	evacuatedEmpty = 4 // cell is empty, bucket is evacuated.
+	// top hash值要大于minTopHash，如果小于则+minTopHash
 	minTopHash     = 5 // minimum tophash for a normal filled cell.
 
 	// flags
@@ -116,6 +117,7 @@ const (
 	oldIterator  = 2 // there may be an iterator using oldbuckets
 	// goroutine正在操作map
 	hashWriting  = 4 // a goroutine is writing to the map
+	// 扩容相同大小
 	sameSizeGrow = 8 // the current map growth is to a new map of the same size
 
 	// sentinel bucket ID for iterator checks
@@ -132,14 +134,16 @@ func isEmpty(x uint8) bool {
 type hmap struct {
 	// Note: the format of the hmap is also encoded in cmd/compile/internal/gc/reflect.go.
 	// Make sure this stays in sync with the compiler's definition.
-	// map中的元素个数
+	// map中的key数量
 	count     int // # live cells == size of map.  Must be first (used by len() builtin)
 	//标识 常量定义  iterator  hashWriting ...
 	flags     uint8
 	// hashtable中bucket数量2^B
 	// 负载因子计算 loadFactor * 2^B
 	B         uint8  // log_2 of # of buckets (can hold up to loadFactor * 2^B items)
-	// 溢出bucket数量
+	// 溢出bucket大概数量
+	// B<16时 每次分配溢出bucket都统计
+	// B>=16时 不一定统计
 	noverflow uint16 // approximate number of overflow buckets; see incrnoverflow for details
 	//hash种子 一个随机数
 	hash0     uint32 // hash seed
@@ -155,6 +159,11 @@ type hmap struct {
 
 // mapextra holds fields that are not present on all maps.
 type mapextra struct {
+	// 如果key和elem都不包含指针并且是内联的，则我们将存储桶类型标记为不包含指针。 这样可以避免扫描此类地图。
+	// 但是，bmap.overflow是一个指针。 为了使溢出桶保持活动状态，我们将指向所有溢出桶的指针存储在hmap.extra.overflow
+	// 和hmap.extra.oldoverflow中。 仅当key和elem不包含指针时，才使用overflow和oldoverflow。
+	// overflow包含hmap.buckets的溢出桶，oldoverflow包含hmap.oldbuckets的溢出存储桶。
+	// 间接允许将指向切片的指针存储在hiter中
 	// If both key and elem do not contain pointers and are inline, then we mark bucket
 	// type as containing no pointers. This avoids scanning such maps.
 	// However, bmap.overflow is a pointer. In order to keep overflow buckets
@@ -163,15 +172,17 @@ type mapextra struct {
 	// overflow contains overflow buckets for hmap.buckets.
 	// oldoverflow contains overflow buckets for hmap.oldbuckets.
 	// The indirection allows to store a pointer to the slice in hiter.
+	// 保存创建的溢出bucket
 	overflow    *[]*bmap
 	oldoverflow *[]*bmap
 
 	// nextOverflow holds a pointer to a free overflow bucket.
+	// 预分配的bucket的指针
 	nextOverflow *bmap
 }
 
 // A bucket for a Go map.
-// hashmap中每个bucket数组中的bucket结构
+// hashmap中bucket数组中的bucket结构
 type bmap struct {
 	// tophash generally contains the top byte of the hash value
 	// for each key in this bucket. If tophash[0] < minTopHash,
@@ -212,6 +223,7 @@ type hiter struct {
 }
 
 // bucketShift returns 1<<b, optimized for code generation.
+// 2^B
 func bucketShift(b uint8) uintptr {
 	// Masking the shift amount allows overflow checks to be elided.
 	return uintptr(1) << (b & (sys.PtrSize*8 - 1))
@@ -243,6 +255,7 @@ func (b *bmap) overflow(t *maptype) *bmap {
 	return *(**bmap)(add(unsafe.Pointer(b), uintptr(t.bucketsize)-sys.PtrSize))
 }
 
+// 设置bucket的溢出指针的值
 func (b *bmap) setoverflow(t *maptype, ovf *bmap) {
 	*(**bmap)(add(unsafe.Pointer(b), uintptr(t.bucketsize)-sys.PtrSize)) = ovf
 }
@@ -258,6 +271,8 @@ func (b *bmap) keys() unsafe.Pointer {
 // To keep hmap small, noverflow is a uint16.
 // When there are few buckets, noverflow is an exact count.
 // When there are many buckets, noverflow is an approximate count.
+// 当存储桶很少时，noverflow是一个精确的计数。
+// 如果有很多存储桶，则noverflow是一个近似计数。
 func (h *hmap) incrnoverflow() {
 	// We trigger same-size map growth if there are
 	// as many overflow buckets as buckets.
@@ -277,12 +292,14 @@ func (h *hmap) incrnoverflow() {
 	}
 }
 
+// 创建一个溢出bucket并关联到b上的溢出指针上
 func (h *hmap) newoverflow(t *maptype, b *bmap) *bmap {
 	var ovf *bmap
 	if h.extra != nil && h.extra.nextOverflow != nil {
 		// We have preallocated overflow buckets available.
 		// See makeBucketArray for more details.
 		ovf = h.extra.nextOverflow
+		// 预分配的bucket的末尾是不为nil的
 		if ovf.overflow(t) == nil {
 			// We're not at the end of the preallocated overflow buckets. Bump the pointer.
 			h.extra.nextOverflow = (*bmap)(add(unsafe.Pointer(ovf), uintptr(t.bucketsize)))
@@ -296,6 +313,7 @@ func (h *hmap) newoverflow(t *maptype, b *bmap) *bmap {
 	} else {
 		ovf = (*bmap)(newobject(t.bucket))
 	}
+	// 统计溢出bucket数量
 	h.incrnoverflow()
 	if t.bucket.ptrdata == 0 {
 		h.createOverflow()
@@ -377,7 +395,10 @@ func makemap(t *maptype, hint int, h *hmap) *hmap {
 // allocated by makeBucketArray with the same t and b parameters.
 // If dirtyalloc is nil a new backing array will be alloced and
 // otherwise dirtyalloc will be cleared and reused as backing array.
+// bucket数组最小1<<b
+// 创建新的bucket
 func makeBucketArray(t *maptype, b uint8, dirtyalloc unsafe.Pointer) (buckets unsafe.Pointer, nextOverflow *bmap) {
+	//2^b
 	base := bucketShift(b)
 	nbuckets := base
 	// For small b, overflow buckets are unlikely.
@@ -409,14 +430,18 @@ func makeBucketArray(t *maptype, b uint8, dirtyalloc unsafe.Pointer) (buckets un
 		}
 	}
 
+	// 预分配bucket
 	if base != nbuckets {
 		// We preallocated some overflow buckets.
 		// To keep the overhead of tracking these overflow buckets to a minimum,
 		// we use the convention that if a preallocated overflow bucket's overflow
 		// pointer is nil, then there are more available by bumping the pointer.
 		// We need a safe non-nil pointer for the last overflow bucket; just use buckets.
+		// 预分配bucket的起始位置
 		nextOverflow = (*bmap)(add(buckets, base*uintptr(t.bucketsize)))
+		// 预分配bucket的结束位置
 		last := (*bmap)(add(buckets, (nbuckets-1)*uintptr(t.bucketsize)))
+		//  预分配bucket的最后一个bucket的溢出指针指向当前bucket
 		last.setoverflow(t, (*bmap)(buckets))
 	}
 	return buckets, nextOverflow
@@ -1060,8 +1085,10 @@ func hashGrow(t *maptype, h *hmap) {
 		h.flags |= sameSizeGrow
 	}
 	oldbuckets := h.buckets
+	// 创建新的bucket
+	// nextOverflow：预分配的bucket
 	newbuckets, nextOverflow := makeBucketArray(t, h.B+bigger, nil)
-
+    // a&^b==a&(^b)
 	flags := h.flags &^ (iterator | oldIterator)
 	if h.flags&iterator != 0 {
 		flags |= oldIterator
@@ -1094,6 +1121,7 @@ func hashGrow(t *maptype, h *hmap) {
 }
 
 // overLoadFactor reports whether count items placed in 1<<B buckets is over loadFactor.
+// map中元素数量>8&&>6.5*bucket数量
 func overLoadFactor(count int, B uint8) bool {
 	return count > bucketCnt && uintptr(count) > loadFactorNum*(bucketShift(B)/loadFactorDen)
 }
@@ -1126,6 +1154,7 @@ func (h *hmap) sameSizeGrow() bool {
 }
 
 // noldbuckets calculates the number of buckets prior to the current map growth.
+//
 func (h *hmap) noldbuckets() uintptr {
 	oldB := h.B
 	if !h.sameSizeGrow() {
@@ -1157,9 +1186,12 @@ func bucketEvacuated(t *maptype, h *hmap, bucket uintptr) bool {
 
 // evacDst is an evacuation destination.
 type evacDst struct {
+	// 指向bucket
 	b *bmap          // current destination bucket
 	i int            // key/elem index into b
+	// 执行bucket中的key位置
 	k unsafe.Pointer // pointer to current key storage
+	// 执行bucket中的value位置
 	e unsafe.Pointer // pointer to current elem storage
 }
 
