@@ -21,23 +21,29 @@ func mapaccess1_faststr(t *maptype, h *hmap, ky string) unsafe.Pointer {
 		throw("concurrent map read and map write")
 	}
 	key := stringStructOf(&ky)
+	// bucket数组只有一个元素
 	if h.B == 0 {
 		// One-bucket table.
 		b := (*bmap)(h.buckets)
+		// key的长度
 		if key.len < 32 {
 			// short key, doing lots of comparisons is ok
+			// 遍历bucket中的key
 			for i, kptr := uintptr(0), b.keys(); i < bucketCnt; i, kptr = i+1, add(kptr, 2*sys.PtrSize) {
 				k := (*stringStruct)(kptr)
 				if k.len != key.len || isEmpty(b.tophash[i]) {
+					//当前top hash是空，后边的top hash也是空，不用在遍历了
 					if b.tophash[i] == emptyRest {
 						break
 					}
 					continue
 				}
+				// key相等 返回对应位置处的value
 				if k.str == key.str || memequal(k.str, key.str, uintptr(key.len)) {
 					return add(unsafe.Pointer(b), dataOffset+bucketCnt*2*sys.PtrSize+i*uintptr(t.elemsize))
 				}
 			}
+			// 没有找到key 返回一个空值
 			return unsafe.Pointer(&zeroVal[0])
 		}
 		// long key, try not to do more comparisons than necessary
@@ -77,14 +83,20 @@ func mapaccess1_faststr(t *maptype, h *hmap, ky string) unsafe.Pointer {
 	}
 dohash:
 	hash := t.hasher(noescape(unsafe.Pointer(&ky)), uintptr(h.hash0))
+	// 当前bucket大小
 	m := bucketMask(h.B)
+	// key所属与的bucket
 	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
+	// 在扩容
 	if c := h.oldbuckets; c != nil {
 		if !h.sameSizeGrow() {
 			// There used to be half as many buckets; mask down one more power of two.
+			// 旧的bucket大小
 			m >>= 1
 		}
+		// 旧的bucket
 		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
+		// 旧的对应bucket是否已经被迁移
 		if !evacuated(oldb) {
 			b = oldb
 		}
@@ -412,36 +424,48 @@ func growWork_faststr(t *maptype, h *hmap, bucket uintptr) {
 	}
 }
 
+// 迁移bucket
 func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 	// key在旧的bucket数组中位置
 	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
-	// 旧的bucket大小减小一半
+	// 旧的bucket大小
 	newbit := h.noldbuckets()
+	//  bucket是否已经被迁移
 	if !evacuated(b) {
 		// TODO: reuse overflow buckets instead of using new ones, if there
 		// is no iterator using the old buckets.  (If !oldIterator.)
 
 		// xy contains the x and y (low and high) evacuation destinations.
+		// x用于bucket序号没有变的迁移
+		// y用于bucket序号发生变化的迁移
+		// 扩容2倍后，bucket中的key会被分裂2个新的bucket中
 		var xy [2]evacDst
 		x := &xy[0]
+		// 旧的bucket迁移到新的bucket时 所在位置的指针
 		x.b = (*bmap)(add(h.buckets, oldbucket*uintptr(t.bucketsize)))
 		x.k = add(unsafe.Pointer(x.b), dataOffset)
 		x.e = add(x.k, bucketCnt*2*sys.PtrSize)
 
+		// 是否等量扩容
 		if !h.sameSizeGrow() {
 			// Only calculate y pointers if we're growing bigger.
 			// Otherwise GC can see bad pointers.
 			y := &xy[1]
+			// 容量变化 需要重新计算搬迁到的新bucket位置
 			y.b = (*bmap)(add(h.buckets, (oldbucket+newbit)*uintptr(t.bucketsize)))
 			y.k = add(unsafe.Pointer(y.b), dataOffset)
 			y.e = add(y.k, bucketCnt*2*sys.PtrSize)
 		}
 
+		// 遍历旧的bucket和它后边的溢出bucket
 		for ; b != nil; b = b.overflow(t) {
+			// 旧的bucket中的key
 			k := add(unsafe.Pointer(b), dataOffset)
+			// 旧的bucket中的value
 			e := add(k, bucketCnt*2*sys.PtrSize)
 			for i := 0; i < bucketCnt; i, k, e = i+1, add(k, 2*sys.PtrSize), add(e, uintptr(t.elemsize)) {
 				top := b.tophash[i]
+				//
 				if isEmpty(top) {
 					b.tophash[i] = evacuatedEmpty
 					continue
@@ -454,14 +478,17 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 					// Compute hash to make our evacuation decision (whether we need
 					// to send this key/elem to bucket x or bucket y).
 					hash := t.hasher(k, uintptr(h.hash0))
+					// 判断key的在新旧bucket中的序号是否改变，从而分流到不同的迁移位置
 					if hash&newbit != 0 {
 						useY = 1
 					}
 				}
-
+                // 标记key的去向，迁移到新bucket的哪个部分
 				b.tophash[i] = evacuatedX + useY // evacuatedX + 1 == evacuatedY, enforced in makemap
+				// 迁移到的新bucket
 				dst := &xy[useY]                 // evacuation destination
 
+				// bucket已满 则新建一个溢出bucket
 				if dst.i == bucketCnt {
 					dst.b = h.newoverflow(t, dst.b)
 					dst.i = 0
@@ -472,28 +499,36 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 
 				// Copy key.
 				*(*string)(dst.k) = *(*string)(k)
-
+                // 复制value到新的bucket
 				typedmemmove(t.elem, dst.e, e)
+				// 迁移数量+1
 				dst.i++
 				// These updates might push these pointers past the end of the
 				// key or elem arrays.  That's ok, as we have the overflow pointer
 				// at the end of the bucket to protect against pointing past the
 				// end of the bucket.
+				// 下一个key位置
 				dst.k = add(dst.k, 2*sys.PtrSize)
+				// 下一个value位置
 				dst.e = add(dst.e, uintptr(t.elemsize))
 			}
 		}
 		// Unlink the overflow buckets & clear key/elem to help GC.
+		// 旧的bucket迁移完成，如果没有协程在使用旧bucket，就把旧bucket清除掉，帮助gc
 		if h.flags&oldIterator == 0 && t.bucket.ptrdata != 0 {
 			b := add(h.oldbuckets, oldbucket*uintptr(t.bucketsize))
 			// Preserve b.tophash because the evacuation
 			// state is maintained there.
+			//kv位置
 			ptr := add(b, dataOffset)
+			//kv部分所占字节
 			n := uintptr(t.bucketsize) - dataOffset
+			// 只清除bucket 的 key,value 部分，保留 top hash 部分，指示搬迁状态
 			memclrHasPointers(ptr, n)
 		}
 	}
 
+	// 如果此次搬迁的bucket等于当前进度
 	if oldbucket == h.nevacuate {
 		advanceEvacuationMark(h, t, newbit)
 	}

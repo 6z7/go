@@ -104,6 +104,7 @@ const (
 	// Each bucket (including its overflow buckets, if any) will have either all or none of its
 	// entries in the evacuated* states (except during the evacuate() method, which only happens
 	// during map writes and thus no one else can observe the map during that time).
+	// 当前单元是空并且后边的单元也是空
 	emptyRest      = 0 // this cell is empty, and there are no more non-empty cells at higher indexes or overflows.
 	emptyOne       = 1 // this cell is empty
 	evacuatedX     = 2 // key/elem is valid.  Entry has been evacuated to first half of larger table.
@@ -151,7 +152,7 @@ type hmap struct {
 	buckets    unsafe.Pointer // array of 2^B Buckets. may be nil if count==0.
 	// growing 时保存原buckets的指针
 	oldbuckets unsafe.Pointer // previous bucket array of half the size, non-nil only when growing
-    // growing 时已迁移的个数
+    // growing 时已迁移的个数 迁移进度
 	nevacuate  uintptr        // progress counter for evacuation (buckets less than this have been evacuated)
 
 	extra *mapextra // optional fields
@@ -245,6 +246,7 @@ func tophash(hash uintptr) uint8 {
 	return top
 }
 
+// bucket是否已经被迁移
 func evacuated(b *bmap) bool {
 	h := b.tophash[0]
 	return h > emptyOne && h < minTopHash
@@ -1154,7 +1156,7 @@ func (h *hmap) sameSizeGrow() bool {
 }
 
 // noldbuckets calculates the number of buckets prior to the current map growth.
-//
+// 新的bucket数组扩容一倍。根据新的bucket数组大小计算处旧的bucket数组大小
 func (h *hmap) noldbuckets() uintptr {
 	oldB := h.B
 	if !h.sameSizeGrow() {
@@ -1179,15 +1181,18 @@ func growWork(t *maptype, h *hmap, bucket uintptr) {
 	}
 }
 
+// 判断指定bucket是否已经被迁移
 func bucketEvacuated(t *maptype, h *hmap, bucket uintptr) bool {
 	b := (*bmap)(add(h.oldbuckets, bucket*uintptr(t.bucketsize)))
 	return evacuated(b)
 }
 
 // evacDst is an evacuation destination.
+// 迁移中用到的数据结构
 type evacDst struct {
-	// 指向bucket
+	// 指向bucket  新bucket的指针
 	b *bmap          // current destination bucket
+	// bucket中kv数量
 	i int            // key/elem index into b
 	// 执行bucket中的key位置
 	k unsafe.Pointer // pointer to current key storage
@@ -1195,7 +1200,9 @@ type evacDst struct {
 	e unsafe.Pointer // pointer to current elem storage
 }
 
+// 迁移bucket
 func evacuate(t *maptype, h *hmap, oldbucket uintptr) {
+	//
 	b := (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
 	newbit := h.noldbuckets()
 	if !evacuated(b) {
@@ -1309,17 +1316,26 @@ func evacuate(t *maptype, h *hmap, oldbucket uintptr) {
 	}
 }
 
+// 更新迁移进度
+// newbit：bucket数组大小
 func advanceEvacuationMark(h *hmap, t *maptype, newbit uintptr) {
+	// 迁移进度+1
 	h.nevacuate++
 	// Experiments suggest that 1024 is overkill by at least an order of magnitude.
 	// Put it in there as a safeguard anyway, to ensure O(1) behavior.
+	// 尝试看看后边的1024个bucket是否迁移完毕
 	stop := h.nevacuate + 1024
 	if stop > newbit {
 		stop = newbit
 	}
+
+	// 遍历bucket 判断是否被迁移
 	for h.nevacuate != stop && bucketEvacuated(t, h, h.nevacuate) {
 		h.nevacuate++
 	}
+	// h.nevacuate 之前的 bucket 都被搬迁完毕
+
+    //所有的bucket搬迁完毕
 	if h.nevacuate == newbit { // newbit == # of oldbuckets
 		// Growing is all done. Free old main bucket array.
 		h.oldbuckets = nil
