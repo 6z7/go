@@ -109,6 +109,7 @@ const (
 	emptyOne       = 1 // this cell is empty
 	evacuatedX     = 2 // key/elem is valid.  Entry has been evacuated to first half of larger table.
 	evacuatedY     = 3 // same as above, but evacuated to second half of larger table.
+	// 当前单元是空 已经迁移走
 	evacuatedEmpty = 4 // cell is empty, bucket is evacuated.
 	// top hash值要大于minTopHash，如果小于则+minTopHash
 	minTopHash     = 5 // minimum tophash for a normal filled cell.
@@ -205,20 +206,31 @@ type bmap struct {
 // A hash iteration structure.
 // If you modify hiter, also change cmd/compile/internal/gc/reflect.go to indicate
 // the layout of this structure.
+// 迭代器结构
 type hiter struct {
 	key         unsafe.Pointer // Must be in first position.  Write nil to indicate iteration end (see cmd/internal/gc/range.go).
 	elem        unsafe.Pointer // Must be in second position (see cmd/internal/gc/range.go).
+	// map类型
 	t           *maptype
+	// map对象指针
 	h           *hmap
+	// bucket数组
 	buckets     unsafe.Pointer // bucket ptr at hash_iter initialization time
+	// 当前遍历到的bucket
 	bptr        *bmap          // current bucket
 	overflow    *[]*bmap       // keeps overflow buckets of hmap.buckets alive
 	oldoverflow *[]*bmap       // keeps overflow buckets of hmap.oldbuckets alive
+	// 指向遍历开始的bucket
 	startBucket uintptr        // bucket iteration started at
+	// bucket中开始遍历的位置
 	offset      uint8          // intra-bucket offset to start from during iteration (should be big enough to hold bucketCnt-1)
+	// bucket遍历到了末尾了
 	wrapped     bool           // already wrapped around from end of bucket array to beginning
+	//
 	B           uint8
+	// bucket中当前遍历到的位置
 	i           uint8
+	// 当前遍历到bucket的指针
 	bucket      uintptr
 	checkBucket uintptr
 }
@@ -891,7 +903,9 @@ func mapiterinit(t *maptype, h *hmap, it *hiter) {
 	if h.B > 31-bucketCntBits {
 		r += uintptr(fastrand()) << 31
 	}
+	// 随机确定遍历开始的位置
 	it.startBucket = r & bucketMask(h.B)
+	// 随机确定bucket中开始的位置
 	it.offset = uint8(r >> h.B & (bucketCnt - 1))
 
 	// iterator state
@@ -943,27 +957,33 @@ next:
 				checkBucket = noCheck
 			}
 		} else {
+			// 当前指针指向的bucket
 			b = (*bmap)(add(it.buckets, bucket*uintptr(t.bucketsize)))
 			checkBucket = noCheck
 		}
 		bucket++
+		// bucket指针遍历到了数组末尾
 		if bucket == bucketShift(it.B) {
 			bucket = 0
 			it.wrapped = true
 		}
 		i = 0
 	}
+	// 遍历当前bucket中的kv
 	for ; i < bucketCnt; i++ {
+		//
 		offi := (i + it.offset) & (bucketCnt - 1)
 		if isEmpty(b.tophash[offi]) || b.tophash[offi] == evacuatedEmpty {
 			// TODO: emptyRest is hard to use here, as we start iterating
 			// in the middle of a bucket. It's feasible, just tricky.
 			continue
 		}
+		// key
 		k := add(unsafe.Pointer(b), dataOffset+uintptr(offi)*uintptr(t.keysize))
 		if t.indirectkey() {
 			k = *((*unsafe.Pointer)(k))
 		}
+		//value
 		e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+uintptr(offi)*uintptr(t.elemsize))
 		if checkBucket != noCheck && !h.sameSizeGrow() {
 			// Special case: iterator was started during a grow to a larger size
