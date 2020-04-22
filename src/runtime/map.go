@@ -107,7 +107,9 @@ const (
 	// 当前单元是空并且后边的单元也是空
 	emptyRest      = 0 // this cell is empty, and there are no more non-empty cells at higher indexes or overflows.
 	emptyOne       = 1 // this cell is empty
+	// 迁移到新bucket数组前半部分 对应的序号没有变换
 	evacuatedX     = 2 // key/elem is valid.  Entry has been evacuated to first half of larger table.
+	// 迁移到新bucket数组后半部分 对应的序号改变了
 	evacuatedY     = 3 // same as above, but evacuated to second half of larger table.
 	// 当前单元是空 已经迁移走
 	evacuatedEmpty = 4 // cell is empty, bucket is evacuated.
@@ -208,7 +210,9 @@ type bmap struct {
 // the layout of this structure.
 // 迭代器结构
 type hiter struct {
+	// key
 	key         unsafe.Pointer // Must be in first position.  Write nil to indicate iteration end (see cmd/internal/gc/range.go).
+	// value
 	elem        unsafe.Pointer // Must be in second position (see cmd/internal/gc/range.go).
 	// map类型
 	t           *maptype
@@ -224,11 +228,11 @@ type hiter struct {
 	startBucket uintptr        // bucket iteration started at
 	// bucket中开始遍历的位置
 	offset      uint8          // intra-bucket offset to start from during iteration (should be big enough to hold bucketCnt-1)
-	// bucket遍历到了末尾了
+	// bucket遍历到了末尾了，从头开始遍历
 	wrapped     bool           // already wrapped around from end of bucket array to beginning
 	//
 	B           uint8
-	// bucket中当前遍历到的位置
+	// bucket数组中当前遍历到的位置，相对于起始bucket的位置
 	i           uint8
 	// 当前遍历到bucket的指针
 	bucket      uintptr
@@ -929,14 +933,19 @@ func mapiternext(it *hiter) {
 	if h.flags&hashWriting != 0 {
 		throw("concurrent map iteration and map write")
 	}
+	// map类型
 	t := it.t
+	// 当前遍历到bucket的指针
 	bucket := it.bucket
+	// 当前遍历到的bucket
 	b := it.bptr
 	i := it.i
+	// 如果遍历的是旧的bucket则指向对应的新的bucket
+	// 旧bucket中的kv会迁移到2个新bucket中
 	checkBucket := it.checkBucket
 
 next:
-	if b == nil {
+	if b == nil {  //第一次遍历 或 遍历新bucket
 		if bucket == it.startBucket && it.wrapped {
 			// end of iteration
 			it.key = nil
@@ -948,11 +957,15 @@ next:
 			// If the bucket we're looking at hasn't been filled in yet (i.e. the old
 			// bucket hasn't been evacuated) then we need to iterate through the old
 			// bucket and only return the ones that will be migrated to this bucket.
+
+			// 迭代器是在扩容过程中启动的，尚未完成扩容。
 			oldbucket := bucket & it.h.oldbucketmask()
 			b = (*bmap)(add(h.oldbuckets, oldbucket*uintptr(t.bucketsize)))
+			// 旧的bucket是否已被迁移
 			if !evacuated(b) {
 				checkBucket = bucket
 			} else {
+				// 迁移完成 直接遍历新的bucket
 				b = (*bmap)(add(it.buckets, bucket*uintptr(t.bucketsize)))
 				checkBucket = noCheck
 			}
@@ -961,8 +974,9 @@ next:
 			b = (*bmap)(add(it.buckets, bucket*uintptr(t.bucketsize)))
 			checkBucket = noCheck
 		}
+		// 下一个bucket
 		bucket++
-		// bucket指针遍历到了数组末尾
+		// bucket指针遍历到了数组末尾,重新从头开始
 		if bucket == bucketShift(it.B) {
 			bucket = 0
 			it.wrapped = true
@@ -971,8 +985,9 @@ next:
 	}
 	// 遍历当前bucket中的kv
 	for ; i < bucketCnt; i++ {
-		//
+		// key偏移
 		offi := (i + it.offset) & (bucketCnt - 1)
+		// 此处单元格空或已经迁移走
 		if isEmpty(b.tophash[offi]) || b.tophash[offi] == evacuatedEmpty {
 			// TODO: emptyRest is hard to use here, as we start iterating
 			// in the middle of a bucket. It's feasible, just tricky.
@@ -997,6 +1012,8 @@ next:
 				// If the item in the oldbucket is not destined for
 				// the current new bucket in the iteration, skip it.
 				hash := t.hasher(k, uintptr(h.hash0))
+				// 旧bucket中的kv会迁移到2个新的bucket中
+				// 此处判断当前旧bucket中的key是否应该迁移到这个新bucket中
 				if hash&bucketMask(it.B) != checkBucket {
 					continue
 				}
@@ -1047,6 +1064,7 @@ next:
 		it.checkBucket = checkBucket
 		return
 	}
+	// 溢出bucket
 	b = b.overflow(t)
 	i = 0
 	goto next
