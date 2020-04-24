@@ -255,10 +255,13 @@ bucketloop:
 		for i := uintptr(0); i < bucketCnt; i++ {
 			// 比较高8位是否相等，用于快速判断
 			if b.tophash[i] != top {
+				// 找到一个空的cell备用(初始化或被标记为删除都认为是空),需要遍历所有的cell才能知道是否存在相等的key
+				// 如果找不到相等的key，则使用这个cell
 				if isEmpty(b.tophash[i]) && insertb == nil {
 					insertb = b
 					inserti = i
 				}
+				// emptyRest当前和后边cell中的key已经被删除，无需在遍历
 				if b.tophash[i] == emptyRest {
 					break bucketloop
 				}
@@ -529,6 +532,7 @@ func evacuate_faststr(t *maptype, h *hmap, oldbucket uintptr) {
 	}
 
 	// 如果此次搬迁的bucket等于当前进度
+	// evacuate_faststr(t, h, h.nevacuate) 触发
 	if oldbucket == h.nevacuate {
 		advanceEvacuationMark(h, t, newbit)
 	}
