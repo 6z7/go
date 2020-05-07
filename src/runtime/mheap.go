@@ -208,6 +208,7 @@ type mheap struct {
 	unused *specialfinalizer // never set, just here to force the specialfinalizer type into DWARF
 }
 
+// 堆
 var mheap_ mheap
 
 // A heapArena stores metadata for a heap arena. heapArenas are stored

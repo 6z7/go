@@ -322,6 +322,7 @@ const (
 //
 // This must be set by the OS init code (typically in osinit) before
 // mallocinit.
+// 内存页大小
 var physPageSize uintptr
 
 // physHugePageSize is the size in bytes of the OS's default physical huge
@@ -337,7 +338,9 @@ var physPageSize uintptr
 // The purpose of physHugePageShift is to avoid doing divisions in
 // performance critical functions.
 var (
+	// 巨页大小
 	physHugePageSize  uintptr
+	// 巨页大小是2的physHugePageShift次方
 	physHugePageShift uint
 )
 
@@ -454,6 +457,7 @@ func mallocinit() {
 	}
 
 	// Initialize the heap.
+	// 初始化内存分配器
 	mheap_.init()
 	_g_ := getg()
 	_g_.m.mcache = allocmcache()

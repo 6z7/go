@@ -55,7 +55,7 @@ func mcall(fn func(*g))    //asm_amd64.s
 //	... use x ...
 //
 //go:noescape
-func systemstack(fn func())
+func systemstack(fn func())  //asm_amd64.s
 
 var badsystemstackMsg = "fatal: systemstack called from unexpected goroutine"
 

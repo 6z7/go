@@ -214,7 +214,7 @@ ok:
 	MOVQ	24(SP), AX		// copy argv
 	MOVQ	AX, 8(SP)     //将argv放到sp+8处
 	CALL	runtime·args(SB)   //runtime1.go args  处理命令行参数与环境变量env
-	CALL	runtime·osinit(SB)  //os_linux.go  获取CPU核数与物理内存页大小
+	CALL	runtime·osinit(SB)  //os_linux.go  获取CPU核数与物理内存大页大小
 	CALL	runtime·schedinit(SB) //proc.go
 
 	// create a new goroutine to start program

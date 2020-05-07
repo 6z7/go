@@ -85,6 +85,7 @@ func getproccount() int32 {
 	// moment, so that's a bit tricky and seems like overkill.
 	const maxCPUs = 64 * 1024
 	var buf [maxCPUs / 8]byte
+	// 查看当前进程可以在哪些cpu上运行
 	r := sched_getaffinity(0, unsafe.Sizeof(buf), &buf[0])
 	if r < 0 {
 		return 1

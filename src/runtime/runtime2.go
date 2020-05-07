@@ -685,6 +685,7 @@ type schedt struct {
 	// 最多只能创建maxmcount个工作线程
 	maxmcount    int32    // maximum number of m's allowed (or die)
 	nmsys        int32    // number of system m's not counted for deadlock
+	// 空闲的m数量
 	nmfreed      int64    // cumulative number of freed m's
 
 	ngsys uint32 // number of system goroutines; updated atomically
@@ -1005,6 +1006,7 @@ var (
 	allpLock   mutex // Protects P-less reads of allp and all writes
 	//p的最大数量
 	gomaxprocs int32
+	//cpu核数
 	ncpu       int32  //cpu核数
 	forcegc    forcegcstate
 	sched      schedt   //调度信息
