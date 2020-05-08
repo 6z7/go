@@ -2,10 +2,16 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Memory allocator.
+// Memory allocator. 内存分配器
 //
+// golang内存分配最初是基于tcmalloc的，但是有很大的不同
 // This was originally based on tcmalloc, but has diverged quite a bit.
 // http://goog-perftools.sourceforge.net/doc/tcmalloc.html
+
+// 主分配器基于大量页进行工作。
+// 小对象分配(最大为32kB，包括32kB)从70个size class选择最接近的一个使用
+// 每个类别的size class都有一个由大小完全相同对象(size class)组成的空闲列表。
+// 任何空闲的内存页都可以分成size class类型对应大小的对象集合，使用空闲bitmap管理
 
 // The main allocator works in runs of pages.
 // Small allocation sizes (up to and including 32 kB) are
@@ -14,15 +20,33 @@
 // Any free page of memory can be split into a set of objects
 // of one size class, which are then managed using a free bitmap.
 //
+// 分配器数据结构
 // The allocator's data structures are:
 //
+// fixalloc:用于固定大小的堆外对象的空闲列表分配器，用于管理分配器使用的存储
 //	fixalloc: a free-list allocator for fixed-size off-heap objects,
 //		used to manage storage used by the allocator.
+// 代表Go程序持有的所有堆空间，分割成页，页大小8kb
 //	mheap: the malloc heap, managed at page (8192-byte) granularity.
+// mheap管理的一堆页组成一个mspan
 //	mspan: a run of pages managed by the mheap.
+//  分配指定大小的span
 //	mcentral: collects all spans of a given size class.
+//  每个P缓存的mspan
 //	mcache: a per-P cache of mspans with free space.
+// 分配统计
 //	mstats: allocation statistics.
+//
+// 小对象的分配将按照如下顺序进行:
+// 1.根据分配内存大小找到一个合适的size class，并查看此P的mcache中相应的mspan。
+//   扫描mspan的位图以查找空闲插槽。如果有空闲插槽，则分配。这一切都可以在不获取锁的情况下完成
+// 2.如果P的mspan缓存中没有空闲的槽可用，则从mcentral中对应大小的空闲mspan列表中分配一个新的mspan。
+//   获得一个完整的span将分摊锁定mcentral的成本。
+// 3.如果mcentral的对应大小的mspan列表没有空闲可以用的span，则从mheap中获取一堆页，分割成mspan
+//
+// 4.如果mheap没有空闲或页的大小不够，则从操作系统中申请一堆页(至少1MB)。
+//   一次分配大量的页面可以分摊与操作系统交互的成本。
+
 //
 // Allocating a small object proceeds up a hierarchy of caches:
 //
@@ -46,6 +70,12 @@
 //	   operating system. Allocating a large run of pages
 //	   amortizes the cost of talking to the operating system.
 //
+
+// mspan的释放按照如下顺序进行:
+// 1.如果是由于要分配内存而扫描mspan,则直接
+// 2.否则，
+
+//
 // Sweeping an mspan and freeing objects on it proceeds up a similar
 // hierarchy:
 //
@@ -64,6 +94,12 @@
 //	4. If an mspan remains idle for long enough, return its pages
 //	   to the operating system.
 //
+
+// 直接使用mheap分配和释放大对象，绕过mcache和mcentral
+//
+//
+
+
 // Allocating and freeing a large object uses the mheap
 // directly, bypassing the mcache and mcentral.
 //
@@ -77,6 +113,15 @@
 //	   probably about to write to the memory.
 //
 //	3. We don't zero pages that never get reused.
+
+
+// 虚拟内存布局
+//
+// 堆由一系列的arena组成，在64位机器上areana大小64MB，32位机器上4MB(heapArenaBytes控制)。
+// 每个arena的起始地址也与arena大小对齐。
+//
+// 每个arena都有一个关联的heapArena对象，该对象存储该arena的元数据：
+// arena中所有字（word）的堆位图和arena中所有页的跨度（span）图。heapArena本身是堆外分配的。
 
 // Virtual memory layout
 //
@@ -131,12 +176,14 @@ const (
 	_PageMask = _PageSize - 1
 
 	// _64bit = 1 on 64-bit systems, 0 on 32-bit systems
+	// 是否64位机器
 	_64bit = 1 << (^uintptr(0) >> 63) / 2
 
 	// Tiny allocator parameters, see "Tiny allocator" comment in malloc.go.
 	_TinySize      = 16
 	_TinySizeClass = int8(2)
 
+	// 1TB
 	_FixAllocChunk = 16 << 10 // Chunk size for FixAlloc
 
 	// Per-P, per order stack segment cache size.
@@ -243,6 +290,8 @@ const (
 	// This is particularly important with the race detector,
 	// since it significantly amplifies the cost of committed
 	// memory.
+	// 堆上的arena大小，64位非机器64MB,32位windows机器4MB
+	// 初始化时堆上只有一个arena
 	heapArenaBytes = 1 << logHeapArenaBytes
 
 	// logHeapArenaBytes is log_2 of heapArenaBytes. For clarity,
@@ -251,6 +300,8 @@ const (
 	logHeapArenaBytes = (6+20)*(_64bit*(1-sys.GoosWindows)*(1-sys.GoosAix)*(1-sys.GoarchWasm)) + (2+20)*(_64bit*sys.GoosWindows) + (2+20)*(1-_64bit) + (8+20)*sys.GoosAix + (2+20)*sys.GoarchWasm
 
 	// heapArenaBitmapBytes is the size of each heap arena's bitmap.
+	// 堆上每个arena对应位图的大小
+	// TODO:为什么除2
 	heapArenaBitmapBytes = heapArenaBytes / (sys.PtrSize * 8 / 2)
 
 	pagesPerArena = heapArenaBytes / pageSize
@@ -322,7 +373,7 @@ const (
 //
 // This must be set by the OS init code (typically in osinit) before
 // mallocinit.
-// 内存页大小
+// 物理内存页大小
 var physPageSize uintptr
 
 // physHugePageSize is the size in bytes of the OS's default physical huge
@@ -343,6 +394,15 @@ var (
 	// 巨页大小是2的physHugePageShift次方
 	physHugePageShift uint
 )
+
+// 管理操作系统内存的抽象层
+//
+// 由go运行时管理的地址空间在任何给定时间都可能处于四种状态之一：
+//
+// None:内存没有被保留或者映射，是地址空间的默认状态
+// Reserved(保留):运行时拥有，访问回报错，不计入进程的占用的内存
+// Prepared：内存被保留，一般没有对应的物理内存，访问该片内存的行为是未定义的(可能失败，可能返回意外0，等等)，可以快速转换到Ready状态
+// Ready：可以安全访问
 
 // OS memory management abstraction layer
 //

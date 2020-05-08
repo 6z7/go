@@ -17,6 +17,7 @@ const (
 // Don't split the stack as this method may be invoked without a valid G, which
 // prevents us from allocating more stack.
 //go:nosplit
+// 从OS上分配指定大小的内存(虚拟内存)
 func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 	p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 	if err != 0 {
@@ -30,6 +31,7 @@ func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 		}
 		return nil
 	}
+	// 统计分配的系统内存
 	mSysStatInc(sysStat, n)
 	return p
 }
@@ -144,6 +146,7 @@ func sysHugePage(v unsafe.Pointer, n uintptr) {
 // Don't split the stack as this function may be invoked without a valid G,
 // which prevents us from allocating more stack.
 //go:nosplit
+// 释放os内存(虚拟内存)
 func sysFree(v unsafe.Pointer, n uintptr, sysStat *uint64) {
 	mSysStatDec(sysStat, n)
 	munmap(v, n)

@@ -19,7 +19,9 @@ import "runtime/internal/atomic"
 //go:notinheap
 type mcentral struct {
 	lock      mutex
+	// mheap种central数组中对应索引
 	spanclass spanClass
+	//
 	nonempty  mSpanList // list of spans with a free object, ie a nonempty free list
 	empty     mSpanList // list of spans with no free objects (or cached in an mcache)
 

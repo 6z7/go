@@ -10,6 +10,7 @@ package runtime
 
 import "unsafe"
 
+// FixAlloc是一个简单的用于固定大小对象的空闲列表分配器
 // FixAlloc is a simple free-list allocator for fixed size objects.
 // Malloc uses a FixAlloc wrapped around sysAlloc to manage its
 // mcache and mspan objects.
@@ -49,6 +50,11 @@ type mlink struct {
 
 // Initialize f to allocate objects of the given size,
 // using the allocator to obtain chunks of memory.
+// 准备分配内存所需的参数
+// size:所需内存大小
+// first:内存分配成功后的回调方法
+// arg:传给回调方法的参数
+// stat:统计分配的内存
 func (f *fixalloc) init(size uintptr, first func(arg, p unsafe.Pointer), arg unsafe.Pointer, stat *uint64) {
 	f.size = size
 	f.first = first

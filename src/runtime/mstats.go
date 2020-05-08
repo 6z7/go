@@ -52,6 +52,7 @@ type mstats struct {
 	mcache_sys   uint64
 	buckhash_sys uint64 // profiling bucket hash table
 	gc_sys       uint64
+	// 累计从OS处分配的内存
 	other_sys    uint64
 
 	// Statistics about garbage collector.
@@ -68,9 +69,9 @@ type mstats struct {
 	debuggc         bool
 
 	// Statistics about allocation size classes.
-
+    // size class数组
 	by_size [_NumSizeClasses]struct {
-		size    uint32
+		size    uint32 //size class对应的大小
 		nmalloc uint64
 		nfree   uint64
 	}
@@ -650,6 +651,7 @@ func purgecachedstats(c *mcache) {
 // A side-effect of using xadduintptr() is that we need to check for
 // overflow errors.
 //go:nosplit
+// 累加分配的系统内存
 func mSysStatInc(sysStat *uint64, n uintptr) {
 	if sysStat == nil {
 		return
@@ -667,6 +669,7 @@ func mSysStatInc(sysStat *uint64, n uintptr) {
 // Atomically decreases a given *system* memory stat. Same comments as
 // mSysStatInc apply.
 //go:nosplit
+// 减去释放的系统内存
 func mSysStatDec(sysStat *uint64, n uintptr) {
 	if sysStat == nil {
 		return

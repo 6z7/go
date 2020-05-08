@@ -18,6 +18,7 @@ import (
 // minPhysPageSize is a lower-bound on the physical page size. The
 // true physical page size may be larger than this. In contrast,
 // sys.PhysPageSize is an upper-bound on the physical page size.
+// 操作系统的内存页大小要大于4kb
 const minPhysPageSize = 4096
 
 // Main malloc heap.
@@ -48,6 +49,8 @@ type mheap struct {
 	// store. Accesses during STW might not hold the lock, but
 	// must ensure that allocation cannot happen around the
 	// access (since that may free the backing store).
+	// 所有被创建的mspan
+	// 这部分内存分配在堆外，直接使用的os内存
 	allspans []*mspan // all spans out there
 
 	// sweepSpans contains two mspan stacks: one of swept in-use
@@ -194,10 +197,13 @@ type mheap struct {
 	// central is indexed by spanClass.
 	central [numSpanClasses]struct {
 		mcentral mcentral
+		// 防止伪共享
 		pad      [cpu.CacheLinePadSize - unsafe.Sizeof(mcentral{})%cpu.CacheLinePadSize]byte
 	}
 
+	// span内存分配器
 	spanalloc             fixalloc // allocator for span*
+	// mcache内存分配器
 	cachealloc            fixalloc // allocator for mcache*
 	treapalloc            fixalloc // allocator for treapNodes*
 	specialfinalizeralloc fixalloc // allocator for specialfinalizer*
@@ -611,17 +617,20 @@ func (s *mspan) released() uintptr {
 // indirect call from the fixalloc initializer, the compiler can't see
 // this.
 //
+// 记录新分配的mspan的指针，只有第一次分配时会被回调
 //go:nowritebarrierrec
 func recordspan(vh unsafe.Pointer, p unsafe.Pointer) {
 	h := (*mheap)(vh)
 	s := (*mspan)(p)
 	if len(h.allspans) >= cap(h.allspans) {
 		n := 64 * 1024 / sys.PtrSize
+		// 容量最小扩大1.5倍
 		if n < cap(h.allspans)*3/2 {
 			n = cap(h.allspans) * 3 / 2
 		}
 		var new []*mspan
 		sp := (*slice)(unsafe.Pointer(&new))
+		// 从OS上分配指定大小的内存
 		sp.array = sysAlloc(uintptr(n)*sys.PtrSize, &memstats.other_sys)
 		if sp.array == nil {
 			throw("runtime: cannot allocate memory")
@@ -632,8 +641,10 @@ func recordspan(vh unsafe.Pointer, p unsafe.Pointer) {
 			copy(new, h.allspans)
 		}
 		oldAllspans := h.allspans
+		// 这部分内存使用的是os内存，在堆外
 		*(*notInHeapSlice)(unsafe.Pointer(&h.allspans)) = *(*notInHeapSlice)(unsafe.Pointer(&new))
 		if len(oldAllspans) != 0 {
+			// 释放旧的系统内存
 			sysFree(unsafe.Pointer(&oldAllspans[0]), uintptr(cap(oldAllspans))*unsafe.Sizeof(oldAllspans[0]), &memstats.other_sys)
 		}
 	}
