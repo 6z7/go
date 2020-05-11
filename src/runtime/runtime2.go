@@ -319,15 +319,15 @@ type gobuf struct {
 	// and restores it doesn't need write barriers. It's still
 	// typed as a pointer so that any other writes from Go get
 	// write barriers.
-	sp   uintptr    // 保存CPU的rsp寄存器的值
-	pc   uintptr     // 保存CPU的rip寄存器的值
+	sp   uintptr    // 保存sp寄存器的值
+	pc   uintptr     // 保存pc寄存器的值
 	g    guintptr    // 记录当前这个gobuf对象属于哪个goroutine
 	ctxt unsafe.Pointer
 	// 保存系统调用的返回值，因为从系统调用返回之后如果p被其它工作线程抢占，
 	// 则这个goroutine会被放入全局运行队列被其它工作线程调度，其它线程需要知道系统调用的返回值。
 	ret  sys.Uintreg
 	lr   uintptr
-	// 保存CPU的rip寄存器的值
+	// 保存bp寄存器的值
 	bp   uintptr // for GOEXPERIMENT=framepointer
 }
 
@@ -424,7 +424,7 @@ type g struct {
 	_defer         *_defer // innermost defer
 	// 此goroutine正在被哪个m执行
 	m              *m      // current m; offset known to arm liblink
-	// 保存调度信息，主要是几个寄存器的值
+	// 保存调度信息，主要是几个寄存器的值,用于协程的切换
 	sched          gobuf
 	syscallsp      uintptr        // if status==Gsyscall, syscallsp = sched.sp to use during gc
 	syscallpc      uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc

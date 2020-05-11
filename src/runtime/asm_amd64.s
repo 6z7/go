@@ -347,6 +347,7 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-8
 TEXT runtime·systemstack_switch(SB), NOSPLIT, $0-0
 	RET
 
+// 当前g是gsignal或g0时直接执行fn,否则切换到g0后在执行fn
 // func systemstack(fn func())
 TEXT runtime·systemstack(SB), NOSPLIT, $0-8
 	MOVQ	fn+0(FP), DI	// DI = fn
@@ -367,6 +368,8 @@ TEXT runtime·systemstack(SB), NOSPLIT, $0-8
 	// switch stacks
 	// save our state in g->sched. Pretend to
 	// be systemstack_switch if the G stack is scanned.
+	// 保存当前寄存器状态到当前g的sched中
+	// g在runtime2.go中
 	MOVQ	$runtime·systemstack_switch(SB), SI
 	MOVQ	SI, (g_sched+gobuf_pc)(AX)
 	MOVQ	SP, (g_sched+gobuf_sp)(AX)
@@ -374,11 +377,11 @@ TEXT runtime·systemstack(SB), NOSPLIT, $0-8
 	MOVQ	BP, (g_sched+gobuf_bp)(AX)
 
 	// switch to g0
-	MOVQ	DX, g(CX)
-	MOVQ	(g_sched+gobuf_sp)(DX), BX
+	MOVQ	DX, g(CX)  //g0赋给覆盖当前g
+	MOVQ	(g_sched+gobuf_sp)(DX), BX //g0中的SP恢复到BX
 	// make it look like mstart called systemstack on g0, to stop traceback
 	SUBQ	$8, BX
-	MOVQ	$runtime·mstart(SB), DX
+	MOVQ	$runtime·mstart(SB), DX   //proc.go文件中
 	MOVQ	DX, 0(BX)
 	MOVQ	BX, SP
 
@@ -389,9 +392,9 @@ TEXT runtime·systemstack(SB), NOSPLIT, $0-8
 
 	// switch back to g
 	get_tls(CX)
-	MOVQ	g(CX), AX
-	MOVQ	g_m(AX), BX
-	MOVQ	m_curg(BX), AX
+	MOVQ	g(CX), AX  //g0
+	MOVQ	g_m(AX), BX  // g0.m
+	MOVQ	m_curg(BX), AX   //go.m.currg保存的时切换前的g
 	MOVQ	AX, g(CX)
 	MOVQ	(g_sched+gobuf_sp)(AX), SP
 	MOVQ	$0, (g_sched+gobuf_sp)(AX)

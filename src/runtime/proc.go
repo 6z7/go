@@ -1213,6 +1213,7 @@ func startTheWorldWithSema(emitTraceEvent bool) int64 {
 //
 //go:nosplit
 //go:nowritebarrierrec
+// 创建新的m的入口
 func mstart() {
 	_g_ := getg()
 
