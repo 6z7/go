@@ -435,8 +435,9 @@ type g struct {
 	atomicstatus   uint32
 	stackLock      uint32 // sigprof/scang lock; TODO: fold in to atomicstatus
 	goid           int64
-	// schedlink字段指向全局运行队列中的下一个g，
-	//所有位于全局运行队列中的g形成一个链表
+	// 指向下一个g
+	// 所有g构成一个链表，每个g都指向下一个g
+	// 空闲g有空闲g的链表
 	schedlink      guintptr
 	waitsince      int64      // approx time when the g become blocked
 	//挂起调度的原因
@@ -536,6 +537,7 @@ type m struct {
 	park          note
 	// 记录所有工作线程的一个链表
 	alllink       *m // on allm
+	// 指向当前m的后一个m的指针
 	schedlink     muintptr
 	mcache        *mcache
 	lockedg       guintptr
@@ -596,7 +598,7 @@ type p struct {
 	goidcache    uint64
 	goidcacheend uint64
 
-	//本地goroutine运行队列
+	//p上本地goroutine运行队列
 	// Queue of runnable goroutines. Accessed without lock.
 	runqhead uint32  // 队列头
 	runqtail uint32  // 队列尾
@@ -614,6 +616,7 @@ type p struct {
 	runnext guintptr
 
 	// Available G's (status == Gdead)
+	// p上g的缓存
 	gFree struct {
 		gList
 		n int32
@@ -640,6 +643,7 @@ type p struct {
 	// Per-P GC state
 	gcAssistTime         int64    // Nanoseconds in assistAlloc
 	gcFractionalMarkTime int64    // Nanoseconds in fractional mark worker (atomic)
+	// 后台gc标记
 	gcBgMarkWorker       guintptr // (atomic)
 	gcMarkWorkerMode     gcMarkWorkerMode
 
@@ -716,11 +720,12 @@ type schedt struct {
 	}
 
 	// Global cache of dead G's.
+	// 调取器上的g结构的缓存
 	gFree struct {
 		lock    mutex
 		stack   gList // Gs with stacks
 		noStack gList // Gs without stacks
-		n       int32
+		n       int32 // 缓存的g结构的数量
 	}
 
 	// 全局挂起g的锁

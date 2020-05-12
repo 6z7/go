@@ -3346,6 +3346,7 @@ func syscall_runtime_AfterExec() {
 }
 
 // Allocate a new g, with a stack big enough for stacksize bytes.
+// 创建一个g，并分配一个指定大小的栈
 func malg(stacksize int32) *g {
 	newg := new(g)
 	if stacksize >= 0 {
@@ -3567,6 +3568,7 @@ func gfput(_p_ *p, gp *g) {
 
 // Get from gfree list.
 // If local list is empty, grab a batch from global list.
+// 尝试从本地p或调度器上获取一个g结构的缓存
 func gfget(_p_ *p) *g {
 retry:
 	if _p_.gFree.empty() && (!sched.gFree.stack.empty() || !sched.gFree.noStack.empty()) {
@@ -3593,6 +3595,7 @@ retry:
 		return nil
 	}
 	_p_.gFree.n--
+	// g还没有分配栈
 	if gp.stack.lo == 0 {
 		// Stack was deallocated in gfput. Allocate a new one.
 		systemstack(func() {
@@ -4114,7 +4117,8 @@ func (pp *p) destroy() {
 	pp.status = _Pdead
 }
 
-//调整P数量
+//调整P数量,如果有多余的P则销毁，将空闲的p放入调度器的空闲列表
+// 非空闲p，尝试获取一个空闲的m关联，非空闲p构成一个链表返回
 // Change number of processors. The world is stopped, sched is locked.
 // gcworkbufs are not being modified by either the GC or
 // the write barrier code.
@@ -4142,6 +4146,7 @@ func procresize(nprocs int32) *p {
 		// concurrently since it doesn't run on a P.
 		lock(&allpLock)
 		if nprocs <= int32(cap(allp)) {
+			// 只保留指定cpu数量的p
 			allp = allp[:nprocs]
 		} else {
 			nallp := make([]*p, nprocs)
@@ -4166,6 +4171,7 @@ func procresize(nprocs int32) *p {
 	}
 
 	_g_ := getg()
+	// 已经分配了有效的P
 	if _g_.m.p != 0 && _g_.m.p.ptr().id < nprocs {
 		// continue to use the current P
 		_g_.m.p.ptr().status = _Prunning
@@ -4184,8 +4190,10 @@ func procresize(nprocs int32) *p {
 				traceGoSched()
 				traceProcStop(_g_.m.p.ptr())
 			}
+			// 清除无效的P关联的m
 			_g_.m.p.ptr().m = 0
 		}
+		// 清除m与无效的P的关联
 		_g_.m.p = 0
 		_g_.m.mcache = nil
 		p := allp[0]
@@ -4222,7 +4230,7 @@ func procresize(nprocs int32) *p {
 		if runqempty(p) { //判断P的本地队列上是否有g
 			pidleput(p) //p加入sched.pidle指向的空闲链表
 		} else {
-			p.m.set(mget())
+			p.m.set(mget())// 如果取到空闲的m则与p关联
 			p.link.set(runnablePs)
 			runnablePs = p
 		}
@@ -4867,7 +4875,7 @@ func pidleget() *p {
 	return _p_
 }
 
-//判断P的本地队列上是否有g
+//判断P的本地队列上是否没有g
 // runqempty reports whether _p_ has no Gs on its local run queue.
 // It never returns true spuriously.
 func runqempty(_p_ *p) bool {
