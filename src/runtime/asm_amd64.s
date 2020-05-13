@@ -86,12 +86,14 @@ GLOBL _rt0_amd64_lib_argv<>(SB),NOPTR, $8
 
 TEXT runtime·rt0_go(SB),NOSPLIT,$0
 	// copy arguments forward on an even stack
-	MOVQ	DI, AX		// argc
-	MOVQ	SI, BX		// argv
-	SUBQ	$(4*8+7), SP		// 2args 2auto
-	ANDQ	$~15, SP
-	MOVQ	AX, 16(SP)
-	MOVQ	BX, 24(SP)
+	MOVQ	DI, AX		// argc地址
+	MOVQ	SI, BX		// argv地址
+	// 4*8 2倍的args和argv +7是为了进行
+	SUBQ	$(4*8+7), SP		// 2args 2auto  // 减去39 硬件SP 向下移动39B
+	ANDQ	$~15, SP  //硬件栈顶调整为16的正数倍 ~15=...111110000
+	// SP和argc之间还剩16字节的空闲
+	MOVQ	AX, 16(SP) // argc地址移动到硬件SP+ 16字节处
+	MOVQ	BX, 24(SP) // argv地址移动SP+ 24字节处
 
      //go编译器为了方便汇编中访问struct的指定字段，会在编译过程中自动生成一个go_asm.h文件，
      //可以通过#include "go_asm.h"语言来引用，该文件中会生成该包内全部struct的每个字段的偏移量宏定义
@@ -99,12 +101,16 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
      //go tool compile -S -asmhdr dump.h *.go来导出相关文件编译过程中会生成的宏定义。
 	// create istack out of the given (operating system) stack.
 	// _cgo_init may update stackguard.
-	MOVQ	$runtime·g0(SB), DI         //prpc.go中g0
-	LEAQ	(-64*1024+104)(SP), BX      //栈底位置
+	MOVQ	$runtime·g0(SB), DI         //proc.go中g0  g0的地址放入DI寄存器
+	LEAQ	(-64*1024+104)(SP), BX      //栈底位置,栈从高地址向低地址增加，g0栈的大小大约64kb
+	// g0.stackguard0 = SP - 64*1024 + 104
 	MOVQ	BX, g_stackguard0(DI)       //runtime2.g.stackguard0
+	// g0.stackguard1 = SP - 64*1024 + 104
 	MOVQ	BX, g_stackguard1(DI)
+	// g0.stack.lo = SP - 64*1024 + 104
 	MOVQ	BX, (g_stack+stack_lo)(DI)    //记录栈底
-	MOVQ	SP, (g_stack+stack_hi)(DI)   //记录SP栈顶
+	// g0.stack.hi = SP
+	MOVQ	SP, (g_stack+stack_hi)(DI)   //记录SP栈顶,硬件sp栈顶的位置
 
 	// find out information about the processor we're on
 	MOVL	$0, AX
@@ -184,11 +190,12 @@ needtls:
 	JMP ok
 #endif
 
-	LEAQ	runtime·m0+m_tls(SB), DI  //runtime2.m.tls地址保存到DI
+	LEAQ	runtime·m0+m_tls(SB), DI  //runtime2.m.tls地址保存到DI di=&m0.tls
+	// m0.tls地址保存到线程的tls中
 	CALL	runtime·settls(SB)    //sys_linux_amd64.s  runtime·settls  保存到本地存储 参数来自DI
 
 	// store through it, to make sure it works
-	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, BX   BX中存储的时m.tls[0]的地址
+	get_tls(BX)  //go_tls.h #define	get_tls(r)	MOVQ TLS, BX   BX中存储的时m.tls的地址
 	MOVQ	$0x123, g(BX)    //m0.tls[0]=0x123
 	MOVQ	runtime·m0+m_tls(SB), AX   //ax=m0.tls[0]
 	CMPQ	AX, $0x123
@@ -198,6 +205,7 @@ ok:
 	// set the per-goroutine and per-mach "registers"
 	get_tls(BX)  //m0的tls[0]地址
 	LEAQ	runtime·g0(SB), CX //CX保存g0的地址
+	// g0的地址保存到tls中
 	MOVQ	CX, g(BX)    //m0.tls[0]=&g0
 	LEAQ	runtime·m0(SB), AX //将m0保存到AX
 
@@ -206,9 +214,14 @@ ok:
 	// save m0 to g0->m
 	MOVQ	AX, g_m(CX) //g0->m=m0   当前g由哪个m在执行
 
+	// tls[0]=&g0
+	// m.g0=&g0
+	// g.m=&m0
+
 	CLD				// convention is D is always left cleared
 	CALL	runtime·check(SB)  //runtime1.go check
 
+    // 复制argc argv新位置
 	MOVL	16(SP), AX		// copy argc
 	MOVL	AX, 0(SP)     //将argc放到栈顶
 	MOVQ	24(SP), AX		// copy argv
@@ -219,11 +232,12 @@ ok:
 
 	// create a new goroutine to start program
 	MOVQ	$runtime·mainPC(SB), AX		// entry  指向proc.go中的runtime.main入口
-	PUSHQ	AX
-	PUSHQ	$0			// arg size  newproc的第一个参数入栈，该参数表示runtime.main函数需要的参数大小，因为runtime.main没有参数，所以这里是0
+	PUSHQ	AX           // 函数地址入栈
+	PUSHQ	$0			//  函数参数大小入栈
+	// 创建一个g用来运行fn函数并将g放到p的运行队列上
 	CALL	runtime·newproc(SB)  //proc.go
-	POPQ	AX
-	POPQ	AX
+	POPQ	AX      // 弹出函数地址
+	POPQ	AX      // 弹出函数参数大小
 
 	// start this M
 	CALL	runtime·mstart(SB)
@@ -283,7 +297,8 @@ TEXT runtime·gogo(SB), NOSPLIT, $16-8
 	//把要运行的g的指针放入线程本地存储，这样后面的代码就可以通过线程本地存储
     //获取到当前正在执行的goroutine的g结构体对象，从而找到与之关联的m和p
 	MOVQ	DX, g(CX)
-	MOVQ	gobuf_sp(BX), SP	// restore SP      把CPU的SP寄存器设置为sched.sp，完成了栈的切换
+	// 把CPU的SP寄存器设置为sched.sp，完成了栈的切换
+	MOVQ	gobuf_sp(BX), SP	// restore SP
 	//下面三条同样是恢复调度上下文到CPU相关寄存器
 	MOVQ	gobuf_ret(BX), AX
 	MOVQ	gobuf_ctxt(BX), DX
@@ -303,12 +318,15 @@ TEXT runtime·gogo(SB), NOSPLIT, $16-8
 // Switch to m->g0's stack, call fn(g).
 // Fn must never return. It should gogo(&g->sched)
 // to keep running g.
+// 切换到g0 在执行fn
 TEXT runtime·mcall(SB), NOSPLIT, $0-8
 	MOVQ	fn+0(FP), DI
 
-    //保存调度信息到当前g.sched中
+    //保存当前g的上下文信息到当前g.sched中
 	get_tls(CX)
+	// AX=当前g
 	MOVQ	g(CX), AX	// save state in g->sched
+	// mcall返回地址放入BX
 	MOVQ	0(SP), BX	// caller's PC
 	MOVQ	BX, (g_sched+gobuf_pc)(AX)
 	LEAQ	fn+0(FP), BX	// caller's SP
@@ -328,13 +346,18 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-8
 	JMP	AX
 	//把g0的地址设置到线程本地存储之中
 	MOVQ	SI, g(CX)	// g = m->g0
-	//恢复g0的栈顶指针到CPU的rsp积存，这一条指令完成了栈的切换，从g的栈切换到了g0的栈
+	//恢复g0的栈顶指针到SP，这一条指令完成了栈的切换，从g的栈切换到了g0的栈
+	// g0.sched.sp的位置
 	MOVQ	(g_sched+gobuf_sp)(SI), SP	// sp = m->g0->sched.sp
+	// 当前g压入栈
 	PUSHQ	AX  //当前的g
 	MOVQ	DI, DX
+	// di=fn的地址
 	MOVQ	0(DI), DI
+	// 调用fn
 	CALL	DI
 	POPQ	AX
+	// fn不会返回，如果执行到这直接报错
 	MOVQ	$runtime·badmcall2(SB), AX
 	JMP	AX
 	RET

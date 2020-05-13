@@ -47,7 +47,9 @@ func gotraceback() (level int32, all, crash bool) {
 }
 
 var (
+	// 启动时的参数个数
 	argc int32
+	// 启动时的参数
 	argv **byte
 )
 

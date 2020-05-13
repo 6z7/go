@@ -232,6 +232,8 @@ func main() {
 	}
 
 	//进入系统调用，退出进程，可以看出main goroutine并未返回，而是直接进入系统调用退出进程了
+	// main groutine执行完成直接退出
+	// 普通的groutine执行完成后 会返回到创建g时指定的返回地址 goexist
 	exit(0)
 	//保护性代码，如果exit意外返回，下面的代码也会让该进程crash死掉
 	for {
@@ -1261,7 +1263,10 @@ func mstart1() {
 	// for terminating the thread.
 	// We're never coming back to mstart1 after we call schedule,
 	// so other calls can reuse the current frame.
+	//  getcallersp()调用者的栈
+	// getcallerpc() 指向下条指令的位置 即asminit()
 	save(getcallerpc(), getcallersp())
+	// 一个空的函数  getcallerpc()指向它的地址
 	asminit()
 	minit()
 
@@ -1275,11 +1280,13 @@ func mstart1() {
 		fn()
 	}
 
-	if _g_.m != &m0 { // m0已经绑定了allp[0]，不是m0的话还没有p，所以需要获取一个p
+	//  m0已经绑定了allp[0]，不是m0的话还没有p，所以需要获取一个p
+	if _g_.m != &m0 {
 		acquirep(_g_.m.nextp.ptr())
 		_g_.m.nextp = 0
 	}
-	schedule()   //schedule函数永远不会返回
+	//schedule函数永远不会返回
+	schedule()
 }
 
 // mstartm0 implements part of mstart1 that only runs on the m0.
@@ -2557,8 +2564,11 @@ func injectglist(glist *gList) {
 
 // One round of scheduler: find a runnable goroutine and execute it.
 // Never returns.
+// schedule() -> execute() -> gogo() -> goroutine 任务 -> goexit() -> goexit1() -> mcall() -> goexit0() -> schedule()
+// mcall切换到g0后 sp恢复到go.sched.sp位置，这个位置固定不变，一致保持在 mstart1 中save处保存的位置处
+// 因为在schedule后一系列函数永远都不会返回，所以重用这些函数上一轮调度时所使用过的栈内存是没有问题的
 func schedule() {
-	_g_ := getg() //每个工作线程m对应的g0，初始化时是m0的g0
+	_g_ := getg()
 
 	if _g_.m.locks != 0 {
 		throw("schedule: holding locks")
@@ -2610,8 +2620,10 @@ top:
 		// Otherwise two goroutines can completely occupy the local runqueue
 		// by constantly respawning each other.
 		if _g_.m.p.ptr().schedtick%61 == 0 && sched.runqsize > 0 {
-			lock(&sched.lock) //所有工作线程都能访问全局运行队列，所以需要加锁
-			gp = globrunqget(_g_.m.p.ptr(), 1) //从全局队列中获取一个g
+			// 所有工作线程都能访问全局运行队列，所以需要加锁
+			lock(&sched.lock)
+			// 从全局队列中获取一个g
+			gp = globrunqget(_g_.m.p.ptr(), 1)
 			unlock(&sched.lock)
 		}
 	}
@@ -2774,13 +2786,14 @@ func goexit1() {
 	if trace.enabled {
 		traceGoEnd()
 	}
-	mcall(goexit0)  //切换到go栈调用goexit0
+	// 切换到go栈调用goexit0
+	mcall(goexit0)
 }
 
 //gp当前的g
 // goexit continuation on g0.
 func goexit0(gp *g) {
-	_g_ := getg()  //当前g
+	_g_ := getg()  //g0
 
 	 //g马上退出，所以设置其状态为_Gdead
 	casgstatus(gp, _Grunning, _Gdead)
@@ -2825,6 +2838,7 @@ func goexit0(gp *g) {
 		print("invalid m->lockedInt = ", _g_.m.lockedInt, "\n")
 		throw("internal lockOSThread error")
 	}
+	// 将dead状态的g缓冲到p或全局上,需要创建g时直接复用
 	gfput(_g_.m.p.ptr(), gp)
 	if locked {
 		// The goroutine may have locked this thread because
@@ -3367,11 +3381,25 @@ func malg(stacksize int32) *g {
 // are available sequentially after &fn; they would not be
 // copied if a stack split occurred.
 //go:nosplit
+// 创建一个g用来运行fn函数 函数的参数大小siz字节，将g放到p的运行队列上
+// 编译器回经go关键字的语句转为调用此函数
 func newproc(siz int32, fn *funcval) {
-	//第一个参数
+	//第一个参数地址
+	//       ----                   高地址
+	//      |  参数
+	//		|-----
+	//		|  参数        -- fn+sys.PtrSize 第一个参数的地址
+	//      |-----
+	//		| fn函数地址   -- fn地址
+	//		|--------
+	//		| 参数数量
+	//      |                       低地址
+	//
 	argp := add(unsafe.Pointer(&fn), sys.PtrSize)
 	gp := getg()
-	pc := getcallerpc() //获取调用这的pc计数器地址
+	// 获取调用者的指令地址
+	// CALL runtime·newproc(SB) 指令后面的 POPQ AX 这条指令的地址
+	pc := getcallerpc()
 	//systemstack的作用是切换到g0栈执行作为参数的函数
 	//我们这个场景现在本身就在g0栈，因此什么也不做，直接调用作为参数的函数
 	systemstack(func() {
@@ -3382,6 +3410,9 @@ func newproc(siz int32, fn *funcval) {
 // Create a new g running fn with narg bytes of arguments starting
 // at argp. callerpc is the address of the go statement that created
 // this. The new g is put on the queue of g's waiting to run.
+// 创建一个新的g用来执行fn函数，fn函数参数有narg字节，参数的起始地址argp
+// callerpc:调用者下一条要执行的指令地址
+// callergp:调用者g
 func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerpc uintptr) {
 	_g_ := getg()
 
@@ -3390,6 +3421,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		throw("go of nil func value")
 	}
 	acquirem() // disable preemption because it can be holding p in a local var
+	// 计算参数的大小 内存对齐
 	siz := narg
 	siz = (siz + 7) &^ 7
 
@@ -3404,9 +3436,10 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	_p_ := _g_.m.p.ptr()
 	newg := gfget(_p_) //从p的本地缓冲里获取一个没有使用的g，初始化时没有，返回nil
 	if newg == nil {
-		//new一个g结构体对象，然后从堆上为其分配栈
+		// new一个g结构体对象，然后从堆上为其分配栈
 		newg = malg(_StackMin)
-		casgstatus(newg, _Gidle, _Gdead)  //初始化g的状态为_Gdead
+		// 初始化g的状态为_Gdead
+		casgstatus(newg, _Gidle, _Gdead)
 		//放入全局变量allgs切片中
 		allgadd(newg) // publishes with a g->status of Gdead so GC scanner doesn't look at uninitialized stack.
 	}
@@ -3418,10 +3451,14 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		throw("newproc1: new g is not Gdead")
 	}
 
-	//调整g的栈顶置针
+	// 计算栈空间大小对齐
+	// 参数所占空间
 	totalSize := 4*sys.RegSize + uintptr(siz) + sys.MinFrameSize // extra space in case of reads slightly beyond frame
 	totalSize += -totalSize & (sys.SpAlign - 1)                  // align to spAlign
+	// 确定栈sp的位置
+	// 减去参数所需的空间
 	sp := newg.stack.hi - totalSize
+	// 确定参数入栈位置
 	spArg := sp
 	if usesLR {
 		// caller's LR
@@ -3458,6 +3495,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	//把pc设置成了goexit这个函数偏移1（sys.PCQuantum等于1）的位置
 	newg.sched.pc = funcPC(goexit) + sys.PCQuantum // +PCQuantum so that previous instruction is in same function
 	newg.sched.g = guintptr(unsafe.Pointer(newg))
+	// 调整g开始执行的位置
 	gostartcallfn(&newg.sched, fn)
 	newg.gopc = callerpc
 	newg.ancestors = saveAncestors(callergp)
@@ -3472,6 +3510,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 	//设置g的状态为_Grunnable，表示这个g代表的goroutine可以运行了
 	casgstatus(newg, _Gdead, _Grunnable)
 
+	// 每次获取16个id(自增数字),用完在获取
 	if _p_.goidcache == _p_.goidcacheend {
 		// Sched.goidgen is the last allocated id,
 		// this batch must be [sched.goidgen+1, sched.goidgen+GoidCacheBatch].
@@ -3480,6 +3519,7 @@ func newproc1(fn *funcval, argp unsafe.Pointer, narg int32, callergp *g, callerp
 		_p_.goidcache -= _GoidCacheBatch - 1
 		_p_.goidcacheend = _p_.goidcache + _GoidCacheBatch
 	}
+	// go id
 	newg.goid = int64(_p_.goidcache)
 	_p_.goidcache++
 	if raceenabled {
@@ -3533,6 +3573,7 @@ func saveAncestors(callergp *g) *[]ancestorInfo {
 
 // Put on gfree list.
 // If local list is too long, transfer a batch to the global list.
+// 将dead状态的g缓冲到p或全局上,需要创建g时直接复用
 func gfput(_p_ *p, gp *g) {
 	if readgstatus(gp) != _Gdead {
 		throw("gfput: bad status (not Gdead)")
@@ -4145,6 +4186,7 @@ func procresize(nprocs int32) *p {
 		// Synchronize with retake, which could be running
 		// concurrently since it doesn't run on a P.
 		lock(&allpLock)
+		// 已经创建的p数据大于cpu数量 则丢弃多余的
 		if nprocs <= int32(cap(allp)) {
 			// 只保留指定cpu数量的p
 			allp = allp[:nprocs]
@@ -4171,7 +4213,7 @@ func procresize(nprocs int32) *p {
 	}
 
 	_g_ := getg()
-	// 已经分配了有效的P
+	// 如果当前已经关联p,则继续使用
 	if _g_.m.p != 0 && _g_.m.p.ptr().id < nprocs {
 		// continue to use the current P
 		_g_.m.p.ptr().status = _Prunning
@@ -4182,6 +4224,7 @@ func procresize(nprocs int32) *p {
 		// We must do this before destroying our current P
 		// because p.destroy itself has write barriers, so we
 		// need to do that from a valid P.
+		// 多余的P被丢弃，需要释放关联的多余的P
 		if _g_.m.p != 0 {
 			if trace.enabled {
 				// Pretend that we were descheduled
@@ -4817,7 +4860,7 @@ func globrunqputbatch(batch *gQueue, n int32) {
 	*batch = gQueue{}
 }
 
-//从全局队列中获取g
+// 从全局队列中获取g
 // Try get a batch of G's from the global runnable queue.
 // Sched must be locked.
 func globrunqget(_p_ *p, max int32) *g {
@@ -4827,14 +4870,17 @@ func globrunqget(_p_ *p, max int32) *g {
 
 	//根据p的数量平分全局运行队列中的goroutines
 	n := sched.runqsize/gomaxprocs + 1
-	if n > sched.runqsize {  //上面计算n的方法可能导致n大于全局运行队列中的goroutine数量
+	//上面计算n的方法可能导致n大于全局运行队列中的goroutine数量
+	if n > sched.runqsize {
+		// 如果 gomaxprocs 为 1
 		n = sched.runqsize
 	}
 	if max > 0 && n > max {
 		n = max   //最多取max个goroutine
 	}
 	if n > int32(len(_p_.runq))/2 {
-		n = int32(len(_p_.runq)) / 2   //最多只能取本地队列容量的一半
+		//最多只能取本地队列容量的一半
+		n = int32(len(_p_.runq)) / 2
 	}
 
 	sched.runqsize -= n
@@ -4909,6 +4955,9 @@ const randomizeScheduler = raceenabled
 // If next is true, runqput puts g in the _p_.runnext slot.
 // If the run queue is full, runnext puts g on the global queue.
 // Executed only by the owner P.
+// 将g放入p的本地队列上
+// next=false 添加g到p的本地队列的尾部 true则放到runnext上
+// 如果运行队列满了，则放入全局队列上
 func runqput(_p_ *p, gp *g, next bool) {
 	if randomizeScheduler && next && fastrand()%2 == 0 {
 		next = false
@@ -4950,6 +4999,7 @@ retry:
 
 // Put g and a batch of work from local runnable queue on global queue.
 // Executed only by the owner P.
+// 将P上的本地运行队列上的一半g和当前要添加的g转移到全局队列上
 func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 	var batch [len(_p_.runq)/2 + 1]*g  //gp加上_p_本地队列的一半
 
@@ -4959,7 +5009,8 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 	if n != uint32(len(_p_.runq)/2) {
 		throw("runqputslow: queue is not full")
 	}
-	for i := uint32(0); i < n; i++ {   //取出p本地队列的一半
+	// 从头开始取出p本地队列的一半
+	for i := uint32(0); i < n; i++ {
 		batch[i] = _p_.runq[(h+i)%uint32(len(_p_.runq))].ptr()
 	}
 	if !atomic.CasRel(&_p_.runqhead, h, h+n) { // cas-release, commits consume
@@ -4985,6 +5036,7 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 
 	// Now put the batch on global queue.
 	lock(&sched.lock)
+	// 放入到全局队列
 	globrunqputbatch(&q, int32(n+1))
 	unlock(&sched.lock)
 	return true

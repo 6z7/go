@@ -145,7 +145,7 @@ func gosave(buf *gobuf)
 
 //go:noescape
 func jmpdefer(fv *funcval, argp uintptr)  //asm_amd64.s
-func asminit()
+func asminit()   //asm_amd64.s
 func setg(gg *g)
 func breakpoint()
 
@@ -177,7 +177,7 @@ type neverCallThisFunction struct{}
 // gentraceback assumes that goexit terminates the stack. A direct
 // call on the stack will cause gentraceback to stop walking the stack
 // prematurely and if there is leftover state it may panic.
-func goexit(neverCallThisFunction)
+func goexit(neverCallThisFunction)  // asm_amd64.s
 
 // Not all cgocallback_gofunc frames are actually cgocallback_gofunc,
 // so not all have these arguments. Mark them uintptr so that the GC

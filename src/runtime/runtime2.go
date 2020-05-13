@@ -137,6 +137,7 @@ const (
 	//
 	// The P retains its run queue and startTheWorld will restart
 	// the scheduler on Ps with non-empty run queues.
+	// STW时停时p和p的执行者m,此时m和p还绑定在一块
 	_Pgcstop
 
 	// _Pdead means a P is no longer used (GOMAXPROCS shrank). We
@@ -189,6 +190,7 @@ type note struct {
 }
 
 type funcval struct {
+	// 函数的地址
 	fn uintptr
 	// variable-size, fn-specific data here
 }
@@ -394,6 +396,7 @@ type wincallbackcontext struct {
 }
 
 //记录goroutine所使用的栈的信息,包括栈顶和栈底位置
+// 栈的范围 [lo, hi)
 // Stack describes a Go execution stack.
 // The bounds of the stack are exactly [lo, hi),
 // with no implicit data structures on either side.
@@ -460,8 +463,10 @@ type g struct {
 	sigcode0       uintptr
 	sigcode1       uintptr
 	sigpc          uintptr
+	// 创建该goroutine的语句的的下一条指令地址
 	gopc           uintptr         // pc of go statement that created this goroutine
 	ancestors      *[]ancestorInfo // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
+	// g要执行的函数的指令地址
 	startpc        uintptr         // pc of goroutine function
 	racectx        uintptr
 	//g挂起时保存的当前信息
@@ -539,6 +544,7 @@ type m struct {
 	alllink       *m // on allm
 	// 指向当前m的后一个m的指针
 	schedlink     muintptr
+	// 使用的是P上的cache
 	mcache        *mcache
 	lockedg       guintptr
 	createstack   [32]uintptr // stack that created this thread.
@@ -595,14 +601,18 @@ type p struct {
 	deferpoolbuf [5][32]*_defer
 
 	// Cache of goroutine ids, amortizes accesses to runtime·sched.goidgen.
+	// 下一个可用的go id(自增数字)
+	// 每次批量获取16个，用完在获取
 	goidcache    uint64
+	// 当前最大可用go id
 	goidcacheend uint64
 
 	//p上本地goroutine运行队列
 	// Queue of runnable goroutines. Accessed without lock.
 	runqhead uint32  // 队列头
 	runqtail uint32  // 队列尾
-	runq     [256]guintptr  //使用数组实现的循环队列
+	// 本地队列， 最多能放256个g
+	runq     [256]guintptr
 	//被优先调度的g
 	// runnext, if non-nil, is a runnable G that was ready'd by
 	// the current G and should be run next instead of what's in
@@ -616,7 +626,7 @@ type p struct {
 	runnext guintptr
 
 	// Available G's (status == Gdead)
-	// p上g的缓存
+	// p上处于dead状态的g的缓存
 	gFree struct {
 		gList
 		n int32
@@ -720,7 +730,7 @@ type schedt struct {
 	}
 
 	// Global cache of dead G's.
-	// 调取器上的g结构的缓存
+	// 全局处于dead状态的g的缓存
 	gFree struct {
 		lock    mutex
 		stack   gList // Gs with stacks
