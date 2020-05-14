@@ -490,8 +490,8 @@ type g struct {
 
 //m结构体用来代表工作线程，它保存了m自身使用的栈信息，当前正在运行的goroutine以及与m绑定的p等信息
 type m struct {
-	// g0主要用来记录工作线程使用的栈信息，在执行调度代码时需要使用这个栈
-	// 执行用户goroutine代码时，使用用户goroutine自己的栈，调度时会发生栈的切换
+    // 每个m都都一个自己的g0
+	// g0的栈要给创建的新的线程使用，linux上stack是8kb
 	g0      *g     // goroutine with scheduling stack
 	morebuf gobuf  // gobuf arg to morestack
 	divmod  uint32 // div/mod denominator for arm - known to liblink
@@ -501,15 +501,18 @@ type m struct {
 	//用于信号处理的g
 	gsignal    *g           // signal-handling g
 	goSigStack gsignalStack // Go-allocated signal handling stack
+	// 线程信号掩码
 	sigmask    sigset       // storage for saved signal mask
 	// 通过TLS实现m结构体对象与工作线程之间的绑定,存储的时g的地址
 	tls        [6]uintptr   // thread-local storage (for x86 extern register)
+	// m执行的函数fn
 	mstartfn   func()
 	// 指向工作线程正在运行的goroutine的g结构体对象
 	curg       *g       // current running goroutine
 	caughtsig  guintptr // goroutine running during fatal signal
 	// 记录与当前工作线程绑定的p结构体对象
 	p             puintptr // attached p for executing go code (nil if not executing go code)
+	// m启动使用的p
 	nextp         puintptr
 	oldp          puintptr // the p that was attached before executing a syscall
 	//m的id
@@ -518,16 +521,18 @@ type m struct {
 	throwing      int32
 	//抢占关闭的原因
 	preemptoff    string // if != "", keep curg running on this m
-	//m上获取lock的数量
+	// >0 在操作m
 	locks         int32
 	dying         int32
 	profilehz     int32
-	// spinning状态：表示当前工作线程正在试图从其它工作线程的本地运行队列偷取goroutine
+	// spinning状态：表示当前工作线程正在试图从其它P的本地运行队列偷取goroutine
 	spinning      bool // m is out of work and is actively looking for work
+	// m是否被挂起
 	blocked       bool // m is blocked on a note
 	newSigstack   bool // minit on C thread called sigaltstack
 	printlock     int8
 	incgo         bool   // m is executing a cgo call
+	// ==0 说明可用安全的释放m关联的g0
 	freeWait      uint32 // if == 0, safe to free g0 and delete m (atomic)
 	//随机数
 	fastrand      [2]uint32
@@ -540,9 +545,9 @@ type m struct {
 	// 没有goroutine需要运行时，工作线程睡眠在这个park成员上，
 	// 其它线程通过这个park唤醒该工作线程
 	park          note
-	// 记录所有工作线程的一个链表
+	// 下一个m的指针
 	alllink       *m // on allm
-	// 指向当前m的后一个m的指针
+	// 下一个空闲m的指针
 	schedlink     muintptr
 	// 使用的是P上的cache
 	mcache        *mcache
@@ -562,6 +567,7 @@ type m struct {
 	syscalltick   uint32
 	// Linux平台thread的值就是操作系统线程ID
 	thread        uintptr // thread handle
+	// 下一个等待释放的m
 	freelink      *m      // on sched.freem
 
 	// these are here because they are too large to be on the stack
@@ -586,11 +592,13 @@ type p struct {
 	id          int32
 	//P状态
 	status      uint32 // one of pidle/prunning/...
-	//P链表,指向下一个P
+	//下一个空闲的P
 	link        puintptr
 	//p被调度次数
 	schedtick   uint32     // incremented on every scheduler call
+	// syscall次数
 	syscalltick uint32     // incremented on every system call
+	// sysmon状态
 	sysmontick  sysmontick // last tick observed by sysmon
 	//当前p是使用的m
 	m           muintptr   // back-link to associated m (nil if idle)
@@ -699,7 +707,7 @@ type schedt struct {
 	// 最多只能创建maxmcount个工作线程
 	maxmcount    int32    // maximum number of m's allowed (or die)
 	nmsys        int32    // number of system m's not counted for deadlock
-	// 空闲的m数量
+	// 已经释放的m的数量
 	nmfreed      int64    // cumulative number of freed m's
 
 	ngsys uint32 // number of system goroutines; updated atomically
@@ -752,8 +760,10 @@ type schedt struct {
 
 	// freem is the list of m's waiting to be freed when their
 	// m.exited is set. Linked through m.freelink.
+	// 等待别释放的m链表
 	freem *m
 
+	// 是否gc正在等待运行
 	gcwaiting  uint32 // gc is waiting to run
 	stopwait   int32
 	stopnote   note
@@ -1018,6 +1028,7 @@ var (
 	allm       *m
 	//所有P
 	allp       []*p  // len(allp) == gomaxprocs; may change at safe points, otherwise immutable
+	// 访问allp的锁
 	allpLock   mutex // Protects P-less reads of allp and all writes
 	//p的最大数量
 	gomaxprocs int32

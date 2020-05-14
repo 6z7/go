@@ -133,10 +133,11 @@ const (
 )
 
 //go:noescape
-func clone(flags int32, stk, mp, gp, fn unsafe.Pointer) int32
+func clone(flags int32, stk, mp, gp, fn unsafe.Pointer) int32   // sys_linux_amd64.s
 
 // May run with m.p==nil, so write barriers are not allowed.
 //go:nowritebarrier
+// 创建线程
 func newosproc(mp *m) {
 	stk := unsafe.Pointer(mp.g0.stack.hi)
 	/*
@@ -150,6 +151,10 @@ func newosproc(mp *m) {
 	// with signals disabled. It will enable them in minit.
 	var oset sigset
 	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
+	// 第一个参数：需要从父进程继承哪些资源
+	// 第二个参数：堆栈空间 设置子进程的esp寄存器
+	// 第三个参数：tls地址
+	// 第四个参数：新进程执行的函数
 	ret := clone(cloneFlags, stk, unsafe.Pointer(mp), unsafe.Pointer(mp.g0), unsafe.Pointer(funcPC(mstart)))
 	sigprocmask(_SIG_SETMASK, &oset, nil)
 

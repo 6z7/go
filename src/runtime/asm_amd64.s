@@ -326,7 +326,7 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-8
 	get_tls(CX)
 	// AX=当前g
 	MOVQ	g(CX), AX	// save state in g->sched
-	// mcall返回地址放入BX
+	// mcall返回地址放入BXx
 	MOVQ	0(SP), BX	// caller's PC
 	MOVQ	BX, (g_sched+gobuf_pc)(AX)
 	LEAQ	fn+0(FP), BX	// caller's SP

@@ -110,6 +110,7 @@ var runtimeInitTime int64
 var initSigmask sigset
 
 // The main goroutine.
+// 在main goroutine上运行，使用的是g0的栈而不是系统线程的栈
 func main() {
 	g := getg()   // g = main goroutine，不再是g0了
 
@@ -1276,7 +1277,9 @@ func mstart1() {
 		mstartm0()
 	}
 
-	if fn := _g_.m.mstartfn; fn != nil {  //初始化过程中fn == nil
+	// 初始化过程中fn == nil
+	// m执行的函数fn
+	if fn := _g_.m.mstartfn; fn != nil {
 		fn()
 	}
 
@@ -1350,6 +1353,7 @@ func mexit(osStack bool) {
 	}
 
 	// Remove m from allm.
+	// 从全局m链表中移除
 	lock(&sched.lock)
 	for pprev := &allm; *pprev != nil; pprev = &(*pprev).alllink {
 		if *pprev == m {
@@ -1364,6 +1368,7 @@ found:
 		//
 		// If this is using an OS stack, the OS will free it
 		// so there's no need for reaping.
+		// 标记m需要等待释放堆栈内存
 		atomic.Store(&m.freeWait, 1)
 		// Put m on the free list, though it will not be reaped until
 		// freeWait is 0. Note that the free list must not be linked
@@ -1375,6 +1380,8 @@ found:
 	unlock(&sched.lock)
 
 	// Release the P.
+	// 解除p和m的绑定
+	// 唤醒m继续执行其它g,如果没有带运行的g则将p放入空闲队列
 	handoffp(releasep())
 	// After this point we must not have write barriers.
 
@@ -1386,6 +1393,7 @@ found:
 	checkdead()
 	unlock(&sched.lock)
 
+	// 如果线程栈是由操作系统分配的 则直接返回
 	if osStack {
 		// Return from mstart and let the system thread
 		// library free the g0 stack and terminate the thread.
@@ -1538,6 +1546,7 @@ type cgothreadstart struct {
 // isn't because it borrows _p_.
 //
 //go:yeswritebarrierrec
+// 创建一个新的m，没有关联任何线程
 func allocm(_p_ *p, fn func()) *m {
 	_g_ := getg()
 	acquirem() // disable GC because it can be called from sysmon
@@ -1547,6 +1556,7 @@ func allocm(_p_ *p, fn func()) *m {
 
 	// Release the free M list. We need to do this somewhere and
 	// this may free up a stack we can use.
+	// 释放一些等待释放的m关连的stack,可以腾出一些空间用
 	if sched.freem != nil {
 		lock(&sched.lock)
 		var newList *m
@@ -1558,6 +1568,7 @@ func allocm(_p_ *p, fn func()) *m {
 				freem = next
 				continue
 			}
+			// 释放g0上分配的系统内存
 			stackfree(freem.g0.stack)
 			freem = freem.freelink
 		}
@@ -1567,6 +1578,7 @@ func allocm(_p_ *p, fn func()) *m {
 
 	mp := new(m)
 	mp.mstartfn = fn
+	// 初始化m
 	mcommoninit(mp)
 
 	// In case of cgo or Solaris or illumos or Darwin, pthread_create will make us a stack.
@@ -1574,6 +1586,7 @@ func allocm(_p_ *p, fn func()) *m {
 	if iscgo || GOOS == "solaris" || GOOS == "illumos" || GOOS == "windows" || GOOS == "plan9" || GOOS == "darwin" {
 		mp.g0 = malg(-1)
 	} else {
+		// 为m创建一个g，8kb大小栈
 		mp.g0 = malg(8192 * sys.StackGuardMultiplier)
 	}
 	mp.g0.m = mp
@@ -1881,7 +1894,9 @@ var newmHandoff struct {
 // fn needs to be static and not a heap allocated closure.
 // May run with m.p==nil, so write barriers are not allowed.
 //go:nowritebarrierrec
+// 创建一个新的m并关联一个线程
 func newm(fn func(), _p_ *p) {
+	//  创建一个新的m，没有关联任何线程
 	mp := allocm(_p_, fn)
 	mp.nextp.set(_p_)
 	mp.sigmask = initSigmask
@@ -1931,6 +1946,7 @@ func newm1(mp *m) {
 		return
 	}
 	execLock.rlock() // Prevent process clone.
+	// 創建线程，设置线程的pc寄存器和sp寄存器和tls
 	newosproc(mp)
 	execLock.runlock()
 }
@@ -1990,6 +2006,7 @@ func templateThread() {
 
 // Stops execution of the current m until new work is available.
 // Returns with acquired P.
+// m加入空闲队列 挂起m等待唤醒
 func stopm() {
 	_g_ := getg()
 
@@ -2023,6 +2040,8 @@ func mspinning() {
 // If spinning is set, the caller has incremented nmspinning and startm will
 // either decrement nmspinning or set m.spinning in the newly started M.
 //go:nowritebarrierrec
+// 调度M运行P
+// 如果p==nil 则尝试获取一个空闲的p,如果没有空闲的p直接返回
 func startm(_p_ *p, spinning bool) {
 	lock(&sched.lock)
 	//没有指定p的话需要从p的空闲队列中获取一个p
@@ -2072,11 +2091,13 @@ func startm(_p_ *p, spinning bool) {
 // Hands off P from syscall or locked M.
 // Always runs without a P, so write barriers are not allowed.
 //go:nowritebarrierrec
+// 如果还有待运行的g则唤醒m去执行否则将p放入全局空闲队列
 func handoffp(_p_ *p) {
 	// handoffp must start an M in any situation where
 	// findrunnable would return a G to run on _p_.
 
 	// if it has local work, start it straight away
+	// 如果本地队列或全局队列上还有g,则直接运行
 	if !runqempty(_p_) || sched.runqsize != 0 {
 		startm(_p_, false)
 		return
@@ -2109,6 +2130,7 @@ func handoffp(_p_ *p) {
 			notewakeup(&sched.safePointNote)
 		}
 	}
+	// 全局队列上还有g
 	if sched.runqsize != 0 {
 		unlock(&sched.lock)
 		startm(_p_, false)
@@ -2121,6 +2143,7 @@ func handoffp(_p_ *p) {
 		startm(_p_, false)
 		return
 	}
+	// P放入全局空闲列表
 	pidleput(_p_)
 	unlock(&sched.lock)
 }
@@ -2251,9 +2274,7 @@ func execute(gp *g, inheritTime bool) {
 	}
 
 	//gogo完成从g0到gp真正的切换
-	//执行流的切换从本质上来说就是CPU寄存器以及函数调用栈的切换，
-	// 然而不管是go还是c这种高级语言都无法精确控制CPU寄存器的修改，
-	// 因而高级语言在这里也就无能为力了，只能依靠汇编指令来达成目的
+	//执行流的切换从本质上来说就是CPU寄存器以及函数调用栈的切换
 	gogo(&gp.sched)   //asm_amd64.s
 }
 
@@ -2320,7 +2341,7 @@ top:
 		}
 	}
 
-	//如果除了当前工作线程还在运行外，其它工作线程已经处于休眠中，那么也就不用去偷了，肯定没有
+	// 其它P都已经空闲说明没有g需要执行
 	// Steal work from other P's.
 	procs := uint32(gomaxprocs)
 	if atomic.Load(&sched.npidle) == procs-1 {
@@ -2330,11 +2351,10 @@ top:
 		goto stop
 	}
 
-	// 这个判断主要是为了防止因为寻找可运行的goroutine而消耗太多的CPU。
-	// 因为已经有足够多的工作线程正在寻找可运行的goroutine，让他们去找就好了，自己偷个懒去睡觉
 	// If number of spinning M's >= number of busy P's, block.
 	// This is necessary to prevent excessive CPU consumption
 	// when GOMAXPROCS>>1 but the program parallelism is low.
+	// g没有的偷取,但是在进行偷取的g的数量已经足够多 直接跳走
 	if !_g_.m.spinning && 2*atomic.Load(&sched.nmspinning) >= procs-atomic.Load(&sched.npidle) {
 		goto stop
 	}
@@ -2350,6 +2370,7 @@ top:
 			if sched.gcwaiting != 0 {
 				goto top
 			}
+			// 当本地队列上没有g时，是否偷取runNext g
 			stealRunNextG := i > 2 // first look for ready queues with more than 1 g
 			if gp := runqsteal(_p_, allp[enum.position()], stealRunNextG); gp != nil {
 				return gp, false
@@ -4333,6 +4354,7 @@ func wirep(_p_ *p) {
 }
 
 // Disassociate p and the current m.
+// 解除当前P和M的绑定
 func releasep() *p {
 	_g_ := getg()
 
@@ -4565,14 +4587,20 @@ func sysmon() {
 }
 
 type sysmontick struct {
+	// sysmon执行时 看到的P被调度的次数
 	schedtick   uint32
+	// 最新一次sysmon执行时间
 	schedwhen   int64
+	//  sysmon执行时 看到的syscall次数
 	syscalltick uint32
+	// 最新一次sysmon执行时间
 	syscallwhen int64
 }
 
 // forcePreemptNS is the time slice given to a G before it is
 // preempted.
+// P被抢占的时间阈值
+// 使用超过10ms会被抢夺
 const forcePreemptNS = 10 * 1000 * 1000 // 10ms
 
 func retake(now int64) uint32 {
@@ -4595,6 +4623,7 @@ func retake(now int64) uint32 {
 		sysretake := false
 		if s == _Prunning || s == _Psyscall {
 			// Preempt G if it's running for too long.
+			// p被调度次数
 			t := int64(_p_.schedtick)
 			if int64(pd.schedtick) != t {
 				pd.schedtick = uint32(t)
@@ -5132,6 +5161,8 @@ func runqgrab(_p_ *p, batch *[256]guintptr, batchHead uint32, stealRunNextG bool
 // Steal half of elements from local runnable queue of p2
 // and put onto local runnable queue of p.
 // Returns one of the stolen elements (or nil if failed).
+// 从p2的本地运行队列上偷取一半的元素
+// stealRunNextG：当本地队列上没有g时，是否偷取runNext G
 func runqsteal(_p_, p2 *p, stealRunNextG bool) *g {
 	t := _p_.runqtail
 	n := runqgrab(p2, &_p_.runq, t, stealRunNextG)
