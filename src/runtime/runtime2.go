@@ -32,10 +32,12 @@ const (
 
 	// _Gidle means this goroutine was just allocated and has not
 	// yet been initialized.
+	// g刚被创建 还没进行初始化
 	_Gidle = iota // 0
 
 	// _Grunnable means this goroutine is on a run queue. It is
 	// not currently executing user code. The stack is not owned.
+	// g在P的运行队列上，但是还未被调度执行
 	_Grunnable // 1
 
 	// _Grunning means this goroutine may execute user code. The
@@ -68,6 +70,8 @@ const (
 	// allocated. The G and its stack (if any) are owned by the M
 	// that is exiting the G or that obtained the G from the free
 	// list.
+	// g当前未被使用
+	// 刚初始化的g或刚执行完退出的g都处于此状态
 	_Gdead // 6
 
 	// _Genqueue_unused is currently unused.
@@ -137,7 +141,7 @@ const (
 	//
 	// The P retains its run queue and startTheWorld will restart
 	// the scheduler on Ps with non-empty run queues.
-	// STW时停时p和p的执行者m,此时m和p还绑定在一块
+	// STW时停止p和p的执行者m,此时m和p还绑定在一块
 	_Pgcstop
 
 	// _Pdead means a P is no longer used (GOMAXPROCS shrank). We
@@ -431,6 +435,7 @@ type g struct {
 	sched          gobuf
 	syscallsp      uintptr        // if status==Gsyscall, syscallsp = sched.sp to use during gc
 	syscallpc      uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc
+	// 创建g后 根据参数计算出来的sp位置
 	stktopsp       uintptr        // expected sp at top of stack, to check in traceback
 	//唤醒时传递的参数
 	param          unsafe.Pointer // passed parameter on wakeup
@@ -497,6 +502,7 @@ type m struct {
 	divmod  uint32 // div/mod denominator for arm - known to liblink
 
 	// Fields not known to debuggers.
+	// m使用的线程id
 	procid     uint64       // for debuggers, but offset not hard-coded
 	//用于信号处理的g
 	gsignal    *g           // signal-handling g
@@ -512,7 +518,8 @@ type m struct {
 	caughtsig  guintptr // goroutine running during fatal signal
 	// 记录与当前工作线程绑定的p结构体对象
 	p             puintptr // attached p for executing go code (nil if not executing go code)
-	// m启动使用的p
+	// m执行时使用的p
+	// m代表一个系统线程
 	nextp         puintptr
 	oldp          puintptr // the p that was attached before executing a syscall
 	//m的id
@@ -592,13 +599,13 @@ type p struct {
 	id          int32
 	//P状态
 	status      uint32 // one of pidle/prunning/...
-	//下一个空闲的P
+	//下一个P
 	link        puintptr
 	//p被调度次数
 	schedtick   uint32     // incremented on every scheduler call
 	// syscall次数
 	syscalltick uint32     // incremented on every system call
-	// sysmon状态
+	// 记录sysmon运行状态
 	sysmontick  sysmontick // last tick observed by sysmon
 	//当前p是使用的m
 	m           muintptr   // back-link to associated m (nil if idle)
@@ -701,6 +708,7 @@ type schedt struct {
 	midle        muintptr // idle m's waiting for work
 	// 空闲的工作线程的数量
 	nmidle       int32    // number of idle m's waiting for work
+	//
 	nmidlelocked int32    // number of locked m's waiting for work
 	//下一个m id
 	mnext        int64    // number of m's that have been created and next M ID
@@ -714,7 +722,7 @@ type schedt struct {
 
 	// 由空闲的p结构体对象组成的链表
 	pidle      puintptr // idle p's
-	// 空闲的p结构体对象的数量
+	// 空闲的p的数量
 	npidle     uint32
 	//处于spinning状态的m数量
 	nmspinning uint32 // See "Worker thread parking/unparking" comment in proc.go.
@@ -778,7 +786,9 @@ type schedt struct {
 
 	profilehz int32 // cpu profiling rate
 
+	// 上次调整P的时间
 	procresizetime int64 // nanotime() of last change to gomaxprocs
+	//
 	totaltime      int64 // ∫gomaxprocs dt up to procresizetime
 }
 

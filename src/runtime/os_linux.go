@@ -152,9 +152,10 @@ func newosproc(mp *m) {
 	var oset sigset
 	sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
 	// 第一个参数：需要从父进程继承哪些资源
-	// 第二个参数：堆栈空间 设置子进程的esp寄存器
-	// 第三个参数：tls地址
-	// 第四个参数：新进程执行的函数
+	// 第二个参数：堆栈空间 设置子进程的esp寄存器   linux 8kb
+	// 第三个参数：m
+	// 第四个参数：g0
+	// 第五个参数：新进程执行的函数入口
 	ret := clone(cloneFlags, stk, unsafe.Pointer(mp), unsafe.Pointer(mp.g0), unsafe.Pointer(funcPC(mstart)))
 	sigprocmask(_SIG_SETMASK, &oset, nil)
 

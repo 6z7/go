@@ -127,6 +127,7 @@ const (
 	// Stored into g->stackguard0 to cause split stack check failure.
 	// Must be greater than any real sp.
 	// 0xfffffade in hex.
+	// g.stackguard0设置为一个很大的值 当比较栈是否溢出时 会触发栈溢出 从而进入栈分裂流程
 	stackPreempt = uintptrMask & -1314
 
 	// Thread is forking.

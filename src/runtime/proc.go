@@ -136,6 +136,7 @@ func main() {
 		//现在执行的是main goroutine，所以使用的是main goroutine的栈，需要切换到g0栈去执行newm()
 		systemstack(func() {
 			//创建监控线程，该线程独立于调度器，不需要跟p关联即可运行
+			// newm创建一个新的线程执行sysmon,由于sysmon不会返回，在mstart中执行fn时不会走到调度逻辑所以无需p
 			newm(sysmon, nil)
 		})
 	}
@@ -479,6 +480,7 @@ func lockedOSThread() bool {
 }
 
 var (
+	// 保存全局g
 	allgs    []*g
 	allglock mutex
 )
@@ -632,6 +634,7 @@ func checkmcount() {
 }
 
 //初始化m
+// 将m关联到全局allm上
 func mcommoninit(mp *m) {
 	_g_ := getg()
 
@@ -1278,7 +1281,7 @@ func mstart1() {
 	}
 
 	// 初始化过程中fn == nil
-	// m执行的函数fn
+	// 线程启动启动时需要先执行fn函数  如 sysmon
 	if fn := _g_.m.mstartfn; fn != nil {
 		fn()
 	}
@@ -1556,7 +1559,7 @@ func allocm(_p_ *p, fn func()) *m {
 
 	// Release the free M list. We need to do this somewhere and
 	// this may free up a stack we can use.
-	// 释放一些等待释放的m关连的stack,可以腾出一些空间用
+	// 释放一些等待释放的m关联的stack,可以腾出一些空间用
 	if sched.freem != nil {
 		lock(&sched.lock)
 		var newList *m
@@ -1587,6 +1590,7 @@ func allocm(_p_ *p, fn func()) *m {
 		mp.g0 = malg(-1)
 	} else {
 		// 为m创建一个g，8kb大小栈
+		// linux线程栈大小8kb
 		mp.g0 = malg(8192 * sys.StackGuardMultiplier)
 	}
 	mp.g0.m = mp
@@ -2040,8 +2044,7 @@ func mspinning() {
 // If spinning is set, the caller has incremented nmspinning and startm will
 // either decrement nmspinning or set m.spinning in the newly started M.
 //go:nowritebarrierrec
-// 调度M运行P
-// 如果p==nil 则尝试获取一个空闲的p,如果没有空闲的p直接返回
+// 启动M运行P
 func startm(_p_ *p, spinning bool) {
 	lock(&sched.lock)
 	//没有指定p的话需要从p的空闲队列中获取一个p
@@ -2066,6 +2069,7 @@ func startm(_p_ *p, spinning bool) {
 		var fn func()
 		if spinning {
 			// The caller incremented nmspinning, so set m.spinning in the new M.
+			// 新线程启动时 执行此函数
 			fn = mspinning
 		}
 		//创建新的工作线程
@@ -2085,6 +2089,7 @@ func startm(_p_ *p, spinning bool) {
 	mp.spinning = spinning
 	mp.nextp.set(_p_)
 	//唤醒处于休眠状态的工作线程
+	// 当在schedule过程中没有获取到需要执行的g时会挂起M,此处唤醒M去执行新的P上的任务
 	notewakeup(&mp.park)
 }
 
@@ -2092,6 +2097,7 @@ func startm(_p_ *p, spinning bool) {
 // Always runs without a P, so write barriers are not allowed.
 //go:nowritebarrierrec
 // 如果还有待运行的g则唤醒m去执行否则将p放入全局空闲队列
+// 将P交给其它M执行
 func handoffp(_p_ *p) {
 	// handoffp must start an M in any situation where
 	// findrunnable would return a G to run on _p_.
@@ -2099,6 +2105,7 @@ func handoffp(_p_ *p) {
 	// if it has local work, start it straight away
 	// 如果本地队列或全局队列上还有g,则直接运行
 	if !runqempty(_p_) || sched.runqsize != 0 {
+		//
 		startm(_p_, false)
 		return
 	}
@@ -2109,6 +2116,7 @@ func handoffp(_p_ *p) {
 	}
 	// no local work, check that there are no spinning/idle M's,
 	// otherwise our help is not required
+	// 没有空闲的P M也都在忙没有在自旋 那么新起的M只能先自旋了
 	if atomic.Load(&sched.nmspinning)+atomic.Load(&sched.npidle) == 0 && atomic.Cas(&sched.nmspinning, 0, 1) { // TODO: fast atomic
 		startm(_p_, true)
 		return
@@ -3407,15 +3415,16 @@ func malg(stacksize int32) *g {
 func newproc(siz int32, fn *funcval) {
 	//第一个参数地址
 	//       ----                   高地址
-	//      |  参数
+	//      |  参数2
 	//		|-----
-	//		|  参数        -- fn+sys.PtrSize 第一个参数的地址
+	//		|  参数1        -- fn+sys.PtrSize 第一个参数的地址
 	//      |-----
 	//		| fn函数地址   -- fn地址
 	//		|--------
 	//		| 参数数量
 	//      |                       低地址
 	//
+	// 函数参数起始地址
 	argp := add(unsafe.Pointer(&fn), sys.PtrSize)
 	gp := getg()
 	// 获取调用者的指令地址
@@ -3676,6 +3685,7 @@ retry:
 }
 
 // Purge all cached G's from gfree list to the global list.
+// 将P上缓存的空闲g移动到全局调度sched对应的空闲g缓冲中
 func gfpurge(_p_ *p) {
 	lock(&sched.gFree.lock)
 	for !_p_.gFree.empty() {
@@ -4127,8 +4137,10 @@ func (pp *p) init(id int32) {
 // transitions it to status _Pdead.
 //
 // sched.lock must be held and the world must be stopped.
+// 销毁P时将释放P上的所有资源 最终P进入_Pdead状态
 func (pp *p) destroy() {
 	// Move all runnable goroutines to the global queue
+	// 将P运行队列上的g转移到全局调度sched运行队列的头部
 	for pp.runqhead != pp.runqtail {
 		// Pop from tail of local queue
 		pp.runqtail--
@@ -4136,6 +4148,7 @@ func (pp *p) destroy() {
 		// Push onto head of global queue
 		globrunqputhead(gp)
 	}
+	// p上runnext移到全局调度sched运行队列的头部
 	if pp.runnext != 0 {
 		globrunqputhead(pp.runnext.ptr())
 		pp.runnext = 0
@@ -4169,6 +4182,7 @@ func (pp *p) destroy() {
 	}
 	freemcache(pp.mcache)
 	pp.mcache = nil
+	// p上关联的空闲g移动到全局调度sched上的空闲g缓冲上
 	gfpurge(pp)
 	traceProcFree(pp)
 	if raceenabled {
@@ -4287,7 +4301,7 @@ func procresize(nprocs int32) *p {
 	var runnablePs *p
 	for i := nprocs - 1; i >= 0; i-- {
 		p := allp[i]
-		if _g_.m.p.ptr() == p { //allp[0]已经关联过m
+		if _g_.m.p.ptr() == p {
 			continue
 		}
 		p.status = _Pidle
@@ -4586,14 +4600,15 @@ func sysmon() {
 	}
 }
 
+// 记录sysmon运行状态
 type sysmontick struct {
 	// sysmon执行时 看到的P被调度的次数
 	schedtick   uint32
-	// 最新一次sysmon执行时间
+	// 最新一次schedtick变化的时间
 	schedwhen   int64
-	//  sysmon执行时 看到的syscall次数
+	//  sysmon执行时 看到的系统调用次数
 	syscalltick uint32
-	// 最新一次sysmon执行时间
+	// 最新一次syscalltick变换的时间
 	syscallwhen int64
 }
 
@@ -4603,7 +4618,9 @@ type sysmontick struct {
 // 使用超过10ms会被抢夺
 const forcePreemptNS = 10 * 1000 * 1000 // 10ms
 
+// 抢占
 func retake(now int64) uint32 {
+	// 将当前P交出的次数
 	n := 0
 	// Prevent allp slice changes. This lock will be completely
 	// uncontended unless we're already stopping the world.
@@ -4611,11 +4628,13 @@ func retake(now int64) uint32 {
 	// We can't use a range loop over allp because we may
 	// temporarily drop the allpLock. Hence, we need to re-fetch
 	// allp each time around the loop.
+	// 遍历所有的P
 	for i := 0; i < len(allp); i++ {
 		_p_ := allp[i]
 		if _p_ == nil {
 			// This can happen if procresize has grown
 			// allp but not yet created new Ps.
+			// procresize中扩容p p还没初始化
 			continue
 		}
 		pd := &_p_.sysmontick
@@ -4628,17 +4647,21 @@ func retake(now int64) uint32 {
 			if int64(pd.schedtick) != t {
 				pd.schedtick = uint32(t)
 				pd.schedwhen = now
-			} else if pd.schedwhen+forcePreemptNS <= now {
+			} else if pd.schedwhen+forcePreemptNS <= now { //g一直在运行 超过了10ms
+				// g运行时间太长了 将当前g标记为可抢占
 				preemptone(_p_)
 				// In case of syscall, preemptone() doesn't
 				// work, because there is no M wired to P.
+				// 系统调用时 M和P没有关联?  所以无法使用preemptone方法，需要手动设置
 				sysretake = true
 			}
 		}
+		// 当前P处于系统调用状态
 		if s == _Psyscall {
 			// Retake P from syscall if it's there for more than 1 sysmon tick (at least 20us).
 			t := int64(_p_.syscalltick)
 			if !sysretake && int64(pd.syscalltick) != t {
+				// sysmon监控当前运行时 系统调用次数已经发生变换 更新
 				pd.syscalltick = uint32(t)
 				pd.syscallwhen = now
 				continue
@@ -4646,6 +4669,10 @@ func retake(now int64) uint32 {
 			// On the one hand we don't want to retake Ps if there is no other work to do,
 			// but on the other hand we want to retake them eventually
 			// because they can prevent the sysmon thread from deep sleep.
+			// 时间条件满足的前提下，满足于以下任一条件才去抢占当前P
+			// 1. P上有需要运行的g
+			// 2. 自旋m的数量+空闲P的数量==0，
+			// 3. 系统调用阻塞超过10毫秒
 			if runqempty(_p_) && atomic.Load(&sched.nmspinning)+atomic.Load(&sched.npidle) > 0 && pd.syscallwhen+10*1000*1000 > now {
 				continue
 			}
@@ -4663,6 +4690,7 @@ func retake(now int64) uint32 {
 				}
 				n++
 				_p_.syscalltick++
+				// 将当前P交给其它M执行
 				handoffp(_p_)
 			}
 			incidlelocked(1)
@@ -4701,22 +4729,28 @@ func preemptall() bool {
 // The actual preemption will happen at some point in the future
 // and will be indicated by the gp->status no longer being
 // Grunning
+
+// 设置抢占标记
 func preemptone(_p_ *p) bool {
 	mp := _p_.m.ptr()
+	// p与m已经解绑或g已经管理它m 直接返回
 	if mp == nil || mp == getg().m {
 		return false
 	}
 	gp := mp.curg
+	// m与g以解绑或当前g时g0直接返回
 	if gp == nil || gp == mp.g0 {
 		return false
 	}
-
+    //可以抢占标记
 	gp.preempt = true
 
 	// Every call in a go routine checks for stack overflow by
 	// comparing the current stack pointer to gp->stackguard0.
 	// Setting gp->stackguard0 to StackPreempt folds
 	// preemption into the normal stack overflow check.
+	// 每次函数调用时都会通过g.stackguard0判断栈是否溢出
+	// stackPreempt是一个很大的标记值，通过该标记可以知道当前g可以被抢占
 	gp.stackguard0 = stackPreempt
 	return true
 }
@@ -4950,7 +4984,7 @@ func pidleget() *p {
 	return _p_
 }
 
-//判断P的本地队列上是否没有g
+// 判断P的本地队列上是否没有g
 // runqempty reports whether _p_ has no Gs on its local run queue.
 // It never returns true spuriously.
 func runqempty(_p_ *p) bool {

@@ -232,7 +232,7 @@ ok:
 
 	// create a new goroutine to start program
 	MOVQ	$runtime·mainPC(SB), AX		// entry  指向proc.go中的runtime.main入口
-	PUSHQ	AX           // 函数地址入栈
+	PUSHQ	AX           // main函数地址入栈
 	PUSHQ	$0			//  函数参数大小入栈
 	// 创建一个g用来运行fn函数并将g放到p的运行队列上
 	CALL	runtime·newproc(SB)  //proc.go
@@ -326,7 +326,7 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-8
 	get_tls(CX)
 	// AX=当前g
 	MOVQ	g(CX), AX	// save state in g->sched
-	// mcall返回地址放入BXx
+	// mcall返回地址放入BX
 	MOVQ	0(SP), BX	// caller's PC
 	MOVQ	BX, (g_sched+gobuf_pc)(AX)
 	LEAQ	fn+0(FP), BX	// caller's SP
@@ -450,16 +450,22 @@ bad:
 // record an argument size. For that purpose, it has no arguments.
 TEXT runtime·morestack(SB),NOSPLIT,$0-0
 	// Cannot grow scheduler stack (m->g0).
+	// tls
 	get_tls(CX)
+	// 当前g
 	MOVQ	g(CX), BX
+	// 当前g使用的m
 	MOVQ	g_m(BX), BX
+	// 当前g关联的g0
 	MOVQ	m_g0(BX), SI
 	CMPQ	g(CX), SI
+	//  如果当前g是g0则报错，否则跳到PC+3继续执行
 	JNE	3(PC)
 	CALL	runtime·badmorestackg0(SB)
 	CALL	runtime·abort(SB)
 
 	// Cannot grow signal stack (m->gsignal).
+	// gsignal上不进行栈扩容
 	MOVQ	m_gsignal(BX), SI
 	CMPQ	g(CX), SI
 	JNE	3(PC)
@@ -468,13 +474,18 @@ TEXT runtime·morestack(SB),NOSPLIT,$0-0
 
 	// Called from f.
 	// Set m->morebuf to f's caller.
+	// 保存调用者的PC和SP寄存器的信息到M的gobuf中
 	NOP	SP	// tell vet SP changed - stop checking offsets
+	// 返回地址 即调用者的下一条指令
 	MOVQ	8(SP), AX	// f's caller's PC
 	MOVQ	AX, (m_morebuf+gobuf_pc)(BX)
+	// 调用者的SP
 	LEAQ	16(SP), AX	// f's caller's SP
 	MOVQ	AX, (m_morebuf+gobuf_sp)(BX)
 	get_tls(CX)
+	// 当前g
 	MOVQ	g(CX), SI
+	// 当前g保存到M的gobuf中
 	MOVQ	SI, (m_morebuf+gobuf_g)(BX)
 
 	// Set g->sched to context in f.
