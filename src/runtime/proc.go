@@ -2163,6 +2163,7 @@ func wakep() {
 	if !atomic.Cas(&sched.nmspinning, 0, 1) {
 		return
 	}
+	// 启动M绑定一个空闲的P  去偷取其它P上的g来执行
 	startm(nil, true)
 }
 
@@ -2548,6 +2549,7 @@ func pollWork() bool {
 	return false
 }
 
+//
 func resetspinning() {
 	_g_ := getg()
 	if !_g_.m.spinning {
@@ -2561,6 +2563,7 @@ func resetspinning() {
 	// M wakeup policy is deliberately somewhat conservative, so check if we
 	// need to wakeup another P here. See "Worker thread parking/unparking"
 	// comment at the top of the file for details.
+	// 没有M去偷P了并且P还有空闲的 则启动M绑定P去偷取其它P上的g来运行
 	if nmspinning == 0 && atomic.Load(&sched.npidle) > 0 {
 		wakep()
 	}
@@ -2673,6 +2676,7 @@ top:
 	// This thread is going to run a goroutine and is not spinning anymore,
 	// so if it was marked as spinning we need to reset it now and potentially
 	// start a new spinning M.
+	// m有spinning标记，说明偷取成功了
 	if _g_.m.spinning {
 		resetspinning()
 	}

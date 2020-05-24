@@ -43,11 +43,13 @@ const (
 	// _Grunning means this goroutine may execute user code. The
 	// stack is owned by this goroutine. It is not on a run queue.
 	// It is assigned an M and a P.
+	// G在运行
 	_Grunning // 2
 
 	// _Gsyscall means this goroutine is executing a system call.
 	// It is not executing user code. The stack is owned by this
 	// goroutine. It is not on a run queue. It is assigned an M.
+	// G在进行系统调用
 	_Gsyscall // 3
 
 	// _Gwaiting means this goroutine is blocked in the runtime.
@@ -58,6 +60,7 @@ const (
 	// write parts of the stack under the appropriate channel
 	// lock. Otherwise, it is not safe to access the stack after a
 	// goroutine enters _Gwaiting (e.g., it may get moved).
+	// G被挂起
 	_Gwaiting // 4
 
 	// _Gmoribund_unused is currently unused, but hardcoded in gdb
@@ -70,7 +73,7 @@ const (
 	// allocated. The G and its stack (if any) are owned by the M
 	// that is exiting the G or that obtained the G from the free
 	// list.
-	// g当前未被使用
+	// g当前未被使用,在空闲列表上
 	// 刚初始化的g或刚执行完退出的g都处于此状态
 	_Gdead // 6
 
@@ -80,6 +83,7 @@ const (
 	// _Gcopystack means this goroutine's stack is being moved. It
 	// is not executing user code and is not on a run queue. The
 	// stack is owned by the goroutine that put it in _Gcopystack.
+	// g正在进行栈分裂
 	_Gcopystack // 8
 
 	// _Gscan combined with one of the above states other than
@@ -110,6 +114,7 @@ const (
 	//
 	// The P is owned by the idle list or by whatever is
 	// transitioning its state. Its run queue is empty.
+	// P上运行队列是空的
 	_Pidle = iota
 
 	// _Prunning means a P is owned by an M and is being used to
@@ -119,6 +124,7 @@ const (
 	// do), _Psyscall (when entering a syscall), or _Pgcstop (to
 	// halt for the GC). The M may also hand ownership of the P
 	// off directly to another M (e.g., to schedule a locked G).
+	// P分配给了M
 	_Prunning
 
 	// _Psyscall means a P is not running user code. It has
@@ -131,6 +137,7 @@ const (
 	// an M successfully CASes its original P back to _Prunning
 	// after a syscall, it must understand the P may have been
 	// used by another M in the interim.
+	//
 	_Psyscall
 
 	// _Pgcstop means a P is halted for STW and owned by the M
@@ -148,6 +155,8 @@ const (
 	// reuse Ps if GOMAXPROCS increases. A dead P is mostly
 	// stripped of its resources, though a few things remain
 	// (e.g., trace buffers).
+	// P不在使用,GOMAXPROCS收缩时触发
+	// GOMAXPROCS增大时会重新使用
 	_Pdead
 )
 
