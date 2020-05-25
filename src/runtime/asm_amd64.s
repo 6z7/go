@@ -489,17 +489,22 @@ TEXT runtime·morestack(SB),NOSPLIT,$0-0
 	MOVQ	SI, (m_morebuf+gobuf_g)(BX)
 
 	// Set g->sched to context in f.
+	// 当前函数的返回地址
 	MOVQ	0(SP), AX // f's PC
 	MOVQ	AX, (g_sched+gobuf_pc)(SI)
 	MOVQ	SI, (g_sched+gobuf_g)(SI)
+	// 当前函数的起始SP
 	LEAQ	8(SP), AX // f's SP
 	MOVQ	AX, (g_sched+gobuf_sp)(SI)
 	MOVQ	BP, (g_sched+gobuf_bp)(SI)
 	MOVQ	DX, (g_sched+gobuf_ctxt)(SI)
 
 	// Call newstack on m->g0's stack.
+	// g0
 	MOVQ	m_g0(BX), BX
+	// tls=&g0
 	MOVQ	BX, g(CX)
+	// 切换到g0的堆栈空间
 	MOVQ	(g_sched+gobuf_sp)(BX), SP
 	CALL	runtime·newstack(SB)
 	CALL	runtime·abort(SB)	// crash if newstack returns

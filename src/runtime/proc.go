@@ -2768,6 +2768,7 @@ func park_m(gp *g) {
 	schedule()
 }
 
+// 解绑当前M运行的g，将g放入全局队列，并去调度执行其它g
 func goschedImpl(gp *g) {
 	status := readgstatus(gp)
 	if status&^_Gscan != _Grunning {
@@ -2775,11 +2776,13 @@ func goschedImpl(gp *g) {
 		throw("bad g status")
 	}
 	casgstatus(gp, _Grunning, _Grunnable)
+	// 解绑M和g
 	dropg()
 	lock(&sched.lock)
+	// 将g放入去全局运行队列
 	globrunqput(gp)
 	unlock(&sched.lock)
-
+    //调度运行g
 	schedule()
 }
 
@@ -2804,6 +2807,7 @@ func goschedguarded_m(gp *g) {
 	goschedImpl(gp)
 }
 
+// 解绑当前M运行的g，将g放入全局队列，并去调度执行其它g
 func gopreempt_m(gp *g) {
 	if trace.enabled {
 		traceGoPreempt()
@@ -4904,6 +4908,7 @@ func mget() *m {
 // Sched must be locked.
 // May run during STW, so write barriers are not allowed.
 //go:nowritebarrierrec
+// 将g放入去全局运行队列
 func globrunqput(gp *g) {
 	sched.runq.pushBack(gp)
 	sched.runqsize++

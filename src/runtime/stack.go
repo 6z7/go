@@ -70,6 +70,7 @@ const (
 
 	//gorounte栈的最小大小2k
 	// The minimum size of stack used by Go code
+	// 最小栈空间大小
 	_StackMin = 2048
 
 	// The minimum stack size to allocate.
@@ -101,6 +102,7 @@ const (
 
 	// The maximum number of bytes that a chain of NOSPLIT
 	// functions can use.
+	// NOSPLIT标记的函数，最大栈空间大小
 	_StackLimit = _StackGuard - _StackSystem - _StackSmall
 )
 
@@ -842,6 +844,7 @@ func copystack(gp *g, newsize uintptr, sync bool) {
 	used := old.hi - gp.sched.sp
 
 	// allocate new stack
+	// 在堆上开辟新的栈空间
 	new := stackalloc(uint32(newsize))
 	if stackPoisonCopy != 0 {
 		fillstack(new, 0xfd)
@@ -924,6 +927,7 @@ func round2(x int32) int32 {
 //
 //go:nowritebarrierrec
 func newstack() {
+	// g0
 	thisg := getg()
 	// TODO: double check all gp. shouldn't be getg().
 	if thisg.m.morebuf.g.ptr().stackguard0 == stackFork {
@@ -938,6 +942,7 @@ func newstack() {
 
 	gp := thisg.m.curg
 
+	// 禁止栈分裂
 	if thisg.m.curg.throwsplit {
 		// Update syscallsp, syscallpc in case traceback uses them.
 		morebuf := thisg.m.morebuf
@@ -968,6 +973,7 @@ func newstack() {
 	// NOTE: stackguard0 may change underfoot, if another thread
 	// is about to try to preempt gp. Read it just once and use that same
 	// value now and below.
+	// g是否标记了可以被抢占
 	preempt := atomic.Loaduintptr(&gp.stackguard0) == stackPreempt
 
 	// Be conservative about where we preempt.
@@ -983,6 +989,7 @@ func newstack() {
 	// it needs a lock held by the goroutine), that small preemption turns
 	// into a real deadlock.
 	if preempt {
+		// runtime
 		if thisg.m.locks != 0 || thisg.m.mallocing != 0 || thisg.m.preemptoff != "" || thisg.m.p.ptr().status != _Prunning {
 			// Let the goroutine keep running for now.
 			// gp->preempt is set, so it will be preempted next time.
@@ -1045,11 +1052,15 @@ func newstack() {
 
 		// Act like goroutine called runtime.Gosched.
 		casgstatus(gp, _Gwaiting, _Grunning)
+		// 解绑当前M运行的g，将g放入全局队列，并去调度执行其它g
+		// 不会返回
 		gopreempt_m(gp) // never return
 	}
 
 	// Allocate a bigger segment and move the stack.
+	// 当前栈大小
 	oldsize := gp.stack.hi - gp.stack.lo
+	// 扩容2倍
 	newsize := oldsize * 2
 	if newsize > maxstacksize {
 		print("runtime: goroutine stack exceeds ", maxstacksize, "-byte limit\n")

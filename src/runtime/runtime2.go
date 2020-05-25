@@ -465,6 +465,7 @@ type g struct {
 	preemptscan    bool       // preempted g does scan for gc
 	gcscandone     bool       // g has scanned stack; protected by _Gscan bit in status
 	gcscanvalid    bool       // false at start of gc cycle, true if G has not run since last scan; TODO: remove?
+	// 禁止栈分裂标志
 	throwsplit     bool       // must not split stack
 	raceignore     int8       // ignore race detection events
 	sysblocktraced bool       // StartTrace has emitted EvGoInSyscall about this goroutine
@@ -507,6 +508,7 @@ type m struct {
     // 每个m都都一个自己的g0
 	// g0的栈要给创建的新的线程使用，linux上stack是8kb
 	g0      *g     // goroutine with scheduling stack
+	// 保存需要进行栈扩容的g的寄存器等上下文信息
 	morebuf gobuf  // gobuf arg to morestack
 	divmod  uint32 // div/mod denominator for arm - known to liblink
 
