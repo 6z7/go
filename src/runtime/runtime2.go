@@ -574,9 +574,9 @@ type m struct {
 	lockedExt     uint32      // tracking for external LockOSThread
 	lockedInt     uint32      // tracking for internal lockOSThread
 	nextwaitm     muintptr    // next m waiting for lock
-	//释放获取到的锁
+	//释放锁回调
 	waitunlockf   func(*g, unsafe.Pointer) bool
-	//获取到的锁
+	//等待获取的锁
 	waitlock      unsafe.Pointer
 	//trace标记
 	waittraceev   byte
