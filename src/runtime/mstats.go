@@ -70,8 +70,10 @@ type mstats struct {
 
 	// Statistics about allocation size classes.
     // size class数组
+    // 每种class对应的大小
 	by_size [_NumSizeClasses]struct {
-		size    uint32 //size class对应的大小
+		//size class对应的大小
+		size    uint32
 		nmalloc uint64
 		nfree   uint64
 	}

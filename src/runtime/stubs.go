@@ -78,6 +78,11 @@ func badsystemstack() {
 // for a new allocation) and hence contains only "junk".
 //
 // The (CPU-specific) implementations of this function are in memclr_*.s.
+// 从指定地址开始 清理n字节
+// 仅用于调用者知道 指针指向的结构不包含堆指针时
+// 1. 指针指向的是初始化的内存但是不包含指针数据
+// 2. 指针指向的是未初始化的内存，内存不包含有效数据
+// memclr_amd64.s
 //go:noescape
 func memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr)
 

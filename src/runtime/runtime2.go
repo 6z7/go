@@ -671,7 +671,7 @@ type p struct {
 	// traceSwept and traceReclaimed track the number of bytes
 	// swept and reclaimed by sweeping in the current sweep loop.
 	traceSwept, traceReclaimed uintptr
-
+    // 内存分配器
 	palloc persistentAlloc // per-P to avoid mutex
 
 	_ uint32 // Alignment for atomic fields below

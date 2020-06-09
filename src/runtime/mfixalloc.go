@@ -10,7 +10,7 @@ package runtime
 
 import "unsafe"
 
-// FixAlloc是一个简单的用于固定大小对象的空闲列表分配器
+// FixAlloc是一个基于空闲列表的用于固定大小对象的分配器
 // FixAlloc is a simple free-list allocator for fixed size objects.
 // Malloc uses a FixAlloc wrapped around sysAlloc to manage its
 // mcache and mspan objects.
@@ -30,10 +30,16 @@ type fixalloc struct {
 	first  func(arg, p unsafe.Pointer) // called first time p is returned
 	arg    unsafe.Pointer
 	list   *mlink
+	// 分配器分配的内存起始地址
 	chunk  uintptr // use uintptr instead of unsafe.Pointer to avoid write barriers
+	// 从os上分配的内存大小
 	nchunk uint32
+	// 使用的字节数
 	inuse  uintptr // in-use bytes now
+	// 统计分配的内存
+	// 不通的分配器对应不同的统计字段
 	stat   *uint64
+	// 指针指向的内存是否不包含指针数据
 	zero   bool // zero allocations
 }
 
@@ -78,11 +84,16 @@ func (f *fixalloc) alloc() unsafe.Pointer {
 		f.list = f.list.next
 		f.inuse += f.size
 		if f.zero {
+			// 清理数据
+			// 调用者知道 指针指向的结构不包含堆指针时
 			memclrNoHeapPointers(v, f.size)
 		}
 		return v
 	}
+	// 分配器上当前可用的内存小于实际需要的
 	if uintptr(f.nchunk) < f.size {
+		// 从os上申请16kb
+		// todo f.size 不会大于16kb吗？
 		f.chunk = uintptr(persistentalloc(_FixAllocChunk, 0, f.stat))
 		f.nchunk = _FixAllocChunk
 	}

@@ -183,7 +183,7 @@ const (
 	_TinySize      = 16
 	_TinySizeClass = int8(2)
 
-	// 1TB
+	// 16kb
 	_FixAllocChunk = 16 << 10 // Chunk size for FixAlloc
 
 	// Per-P, per order stack segment cache size.
@@ -290,17 +290,19 @@ const (
 	// This is particularly important with the race detector,
 	// since it significantly amplifies the cost of committed
 	// memory.
-	// 堆上的arena大小，64位非机器64MB,32位windows机器4MB
+	// 堆上的arena大小，64位非windows机器64MB,32位windows机器4MB
 	// 初始化时堆上只有一个arena
+	// 2^26
 	heapArenaBytes = 1 << logHeapArenaBytes
 
 	// logHeapArenaBytes is log_2 of heapArenaBytes. For clarity,
 	// prefer using heapArenaBytes where possible (we need the
 	// constant to compute some other constants).
+	// 26
 	logHeapArenaBytes = (6+20)*(_64bit*(1-sys.GoosWindows)*(1-sys.GoosAix)*(1-sys.GoarchWasm)) + (2+20)*(_64bit*sys.GoosWindows) + (2+20)*(1-_64bit) + (8+20)*sys.GoosAix + (2+20)*sys.GoarchWasm
 
 	// heapArenaBitmapBytes is the size of each heap arena's bitmap.
-	// 堆上每个arena对应位图的大小
+	// 堆上每个arena对应位图的大小  2MB
 	// TODO:为什么除2
 	heapArenaBitmapBytes = heapArenaBytes / (sys.PtrSize * 8 / 2)
 
@@ -1311,9 +1313,11 @@ func nextSampleNoFP() uintptr {
 
 type persistentAlloc struct {
 	base *notInHeap
+	// 已经使用内存大小
 	off  uintptr
 }
 
+// 内存分配器(persistentAlloc)全局锁
 var globalAlloc struct {
 	mutex
 	persistentAlloc
@@ -1321,11 +1325,13 @@ var globalAlloc struct {
 
 // persistentChunkSize is the number of bytes we allocate when we grow
 // a persistentAlloc.
+// 256kb
 const persistentChunkSize = 256 << 10
 
 // persistentChunks is a list of all the persistent chunks we have
 // allocated. The list is maintained through the first word in the
 // persistent chunk. This is updated atomically.
+// 执行os分配的内存
 var persistentChunks *notInHeap
 
 // Wrapper around sysAlloc that can allocate small chunks.
@@ -1335,9 +1341,11 @@ var persistentChunks *notInHeap
 // The returned memory will be zeroed.
 //
 // Consider marking persistentalloc'd types go:notinheap.
+// 分配指定大小内存 返回分配的内存地址
 func persistentalloc(size, align uintptr, sysStat *uint64) unsafe.Pointer {
 	var p *notInHeap
 	systemstack(func() {
+		// 从os分配指定大小内存
 		p = persistentalloc1(size, align, sysStat)
 	})
 	return unsafe.Pointer(p)
@@ -1348,6 +1356,7 @@ func persistentalloc(size, align uintptr, sysStat *uint64) unsafe.Pointer {
 //go:systemstack
 func persistentalloc1(size, align uintptr, sysStat *uint64) *notInHeap {
 	const (
+		// 64kb
 		maxBlock = 64 << 10 // VM reservation granularity is 64K on windows
 	)
 
@@ -1365,12 +1374,14 @@ func persistentalloc1(size, align uintptr, sysStat *uint64) *notInHeap {
 		align = 8
 	}
 
+	// 分配大小大于64kb 从os中分配
 	if size >= maxBlock {
 		return (*notInHeap)(sysAlloc(size, sysStat))
 	}
 
 	mp := acquirem()
 	var persistent *persistentAlloc
+	// 先从P上获取内存分配器，没有则使用全局分配器
 	if mp != nil && mp.p != 0 {
 		persistent = &mp.p.ptr().palloc
 	} else {

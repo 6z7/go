@@ -160,6 +160,7 @@ var stackLarge struct {
 }
 
 func stackinit() {
+	// 栈大小是页的整数倍
 	if _StackCacheSize&_PageMask != 0 {
 		throw("cache size must be a multiple of page size")
 	}
