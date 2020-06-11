@@ -535,6 +535,7 @@ type m struct {
 	oldp          puintptr // the p that was attached before executing a syscall
 	//m的id
 	id            int64
+	// 内存分配是否进行中 1:进行
 	mallocing     int32
 	throwing      int32
 	//抢占关闭的原因

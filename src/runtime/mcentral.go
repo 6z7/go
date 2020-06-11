@@ -18,12 +18,16 @@ import "runtime/internal/atomic"
 //
 //go:notinheap
 type mcentral struct {
+	// 竞争 锁
 	lock      mutex
 	// mheap中central数组中对应索引
 	//  span的类型
+	// 通过对象的size计算而来
+	// 对象size-->size class-->spanClass
 	spanclass spanClass
-	//
+	// 空闲链表
 	nonempty  mSpanList // list of spans with a free object, ie a nonempty free list
+	// 非空闲链表()
 	empty     mSpanList // list of spans with no free objects (or cached in an mcache)
 
 	// nmalloc is the cumulative count of objects allocated from
@@ -40,8 +44,10 @@ func (c *mcentral) init(spc spanClass) {
 }
 
 // Allocate a span to use in an mcache.
+// 分配一个给mcache用的span
 func (c *mcentral) cacheSpan() *mspan {
 	// Deduct credit for this span allocation and sweep if necessary.
+	// span需要的页大小
 	spanBytes := uintptr(class_to_allocnpages[c.spanclass.sizeclass()]) * _PageSize
 	deductSweepCredit(spanBytes, 0)
 
@@ -252,6 +258,7 @@ func (c *mcentral) freeSpan(s *mspan, preserve bool, wasempty bool) bool {
 
 // grow allocates a new empty span from the heap and initializes it for c's size class.
 func (c *mcentral) grow() *mspan {
+	// 需要分配的页
 	npages := uintptr(class_to_allocnpages[c.spanclass.sizeclass()])
 	size := uintptr(class_to_size[c.spanclass.sizeclass()])
 

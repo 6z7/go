@@ -26,11 +26,15 @@ import "unsafe"
 //
 // Consider marking fixalloc'd types go:notinheap.
 type fixalloc struct {
+	// 分配的对象大小
 	size   uintptr
+	// 第一次分配内存时的回调函数
 	first  func(arg, p unsafe.Pointer) // called first time p is returned
+	// 回调函数的参数
 	arg    unsafe.Pointer
 	list   *mlink
-	// 分配器分配的内存起始地址
+	// 分配内存的起始地址
+	// 每次分配过都会调整指定大小
 	chunk  uintptr // use uintptr instead of unsafe.Pointer to avoid write barriers
 	// 从os上分配的内存大小
 	nchunk uint32
@@ -73,6 +77,8 @@ func (f *fixalloc) init(size uintptr, first func(arg, p unsafe.Pointer), arg uns
 	f.zero = true
 }
 
+// 从分配器上分配内存
+// 分配器知道分配内存所需的参数
 func (f *fixalloc) alloc() unsafe.Pointer {
 	if f.size == 0 {
 		print("runtime: use of FixAlloc_Alloc before FixAlloc_Init\n")
@@ -90,15 +96,15 @@ func (f *fixalloc) alloc() unsafe.Pointer {
 		}
 		return v
 	}
-	// 分配器上当前可用的内存小于实际需要的
+	// 分配器上当前可用的内存不满足实际需要的
 	if uintptr(f.nchunk) < f.size {
 		// 从os上申请16kb
-		// todo f.size 不会大于16kb吗？
 		f.chunk = uintptr(persistentalloc(_FixAllocChunk, 0, f.stat))
 		f.nchunk = _FixAllocChunk
 	}
 
 	v := unsafe.Pointer(f.chunk)
+	// 先回调
 	if f.first != nil {
 		f.first(f.arg, v)
 	}

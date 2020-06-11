@@ -19,6 +19,7 @@ import (
 type mcache struct {
 	// The following members are accessed on every malloc,
 	// so they are grouped here for better caching.
+	// 内存采样速率
 	next_sample uintptr // trigger heap sample after allocating this many bytes
 	local_scan  uintptr // bytes of scannable heap allocated
 
@@ -82,10 +83,12 @@ type stackfreelist struct {
 // dummy mspan that contains no free objects.
 var emptymspan mspan
 
+// 分配一个mcache
 func allocmcache() *mcache {
 	var c *mcache
 	systemstack(func() {
 		lock(&mheap_.lock)
+		// 分配内存创建一个mcache对象
 		c = (*mcache)(mheap_.cachealloc.alloc())
 		c.flushGen = mheap_.sweepgen
 		unlock(&mheap_.lock)

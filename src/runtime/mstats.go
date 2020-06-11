@@ -36,6 +36,7 @@ type mstats struct {
 	// Like MemStats, heap_sys and heap_inuse do not count memory
 	// in manually-managed spans.
 	heap_alloc    uint64 // bytes allocated and not yet freed (same as alloc above)
+	// 统计从os上获取的内存大小
 	heap_sys      uint64 // virtual address space obtained from system for GC'd heap
 	heap_idle     uint64 // bytes in idle spans
 	heap_inuse    uint64 // bytes in mSpanInUse spans
@@ -142,6 +143,7 @@ type mstats struct {
 	heap_marked uint64
 }
 
+// 内存统计
 var memstats mstats
 
 // A MemStats records statistics about the memory allocator.

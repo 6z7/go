@@ -563,8 +563,11 @@ func schedinit() {
 
 	tracebackinit()
 	moduledataverify()
+	// TODO:待处理
 	stackinit()
+	// 内存分配初始化
 	mallocinit()
+	// 初始化m
 	mcommoninit(_g_.m)//初始化m0
 	cpuinit()       // must run before alginit
 	alginit()       // maps must not be used before this call
@@ -633,7 +636,7 @@ func checkmcount() {
 	}
 }
 
-//初始化m
+// 初始化m
 // 将m关联到全局allm上
 func mcommoninit(mp *m) {
 	_g_ := getg()

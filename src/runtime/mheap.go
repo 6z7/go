@@ -33,7 +33,9 @@ type mheap struct {
 	// lock must only be acquired on the system stack, otherwise a g
 	// could self-deadlock if its stack grows with the lock held.
 	lock      mutex
+	// 空闲的span
 	free      mTreap // free spans
+	// 垃圾回收所处的阶段
 	sweepgen  uint32 // sweep generation, see comment in mspan
 	sweepdone uint32 // all spans are swept
 	sweepers  uint32 // number of active sweepone calls
@@ -402,7 +404,7 @@ type mspan struct {
 	// if sweepgen == h->sweepgen + 1, the span was cached before sweep began and is still cached, and needs sweeping
 	// if sweepgen == h->sweepgen + 3, the span was swept and then cached and is still cached
 	// h->sweepgen is incremented by 2 after every GC
-
+    // 当前mspan的垃圾回收所处的阶段
 	sweepgen    uint32
 	divMul      uint16     // for divide by elemsize - divMagic.mul
 	baseMask    uint16     // if non-0, elemsize is a power of 2, & this will get object allocation base
@@ -666,6 +668,8 @@ const (
 	tinySpanClass  = spanClass(tinySizeClass<<1 | 1)
 )
 
+// 根据sizeclass和noscan计算所属于的spanClass
+// noscan为true代表对象不包含指针
 func makeSpanClass(sizeclass uint8, noscan bool) spanClass {
 	return spanClass(sizeclass<<1) | spanClass(bool2int(noscan))
 }
@@ -825,6 +829,8 @@ func pageIndexOf(p uintptr) (arena *heapArena, pageIdx uintptr, pageMask uint8) 
 }
 
 // Initialize the heap.
+// 初始化mspan\mcache\arenaHint内存分配器
+// 初始化mcentral
 func (h *mheap) init() {
 	h.treapalloc.init(unsafe.Sizeof(treapNode{}), nil, nil, &memstats.other_sys)
 	h.spanalloc.init(unsafe.Sizeof(mspan{}), recordspan, unsafe.Pointer(h), &memstats.mspan_sys)
@@ -843,7 +849,7 @@ func (h *mheap) init() {
 	h.spanalloc.zero = false
 
 	// h->mapcache needs no init
-
+    // 初始化mcentral
 	for i := range h.central {
 		h.central[i].mcentral.init(spanClass(i))
 	}
@@ -1008,6 +1014,9 @@ func (h *mheap) reclaimChunk(arenas []arenaIdx, pageIdx, n uintptr) uintptr {
 // alloc_m must run on the system stack because it locks the heap, so
 // any stack growth during alloc_m would self-deadlock.
 //
+// npage:需要分配的页数
+// spanclss:对应的spanclss索引，如果是大对象则是0
+// large:是否是大对象(>32kb)
 //go:systemstack
 func (h *mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
 	_g_ := getg()
@@ -1020,6 +1029,7 @@ func (h *mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
 
 	lock(&h.lock)
 	// transfer stats from cache to global
+	// 将mchache上的统计数据转到全局统计中
 	memstats.heap_scan += uint64(_g_.m.mcache.local_scan)
 	_g_.m.mcache.local_scan = 0
 	memstats.tinyallocs += uint64(_g_.m.mcache.local_tinyallocs)
@@ -1090,6 +1100,7 @@ func (h *mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
 // size class and scannability.
 //
 // If needzero is true, the memory for the returned span will be zeroed.
+//
 func (h *mheap) alloc(npage uintptr, spanclass spanClass, large bool, needzero bool) *mspan {
 	// Don't do any operations that lock the heap on the G stack.
 	// It might trigger stack growth, and the stack growth code needs
@@ -1261,6 +1272,7 @@ HaveSpan:
 //
 // h must be locked.
 func (h *mheap) grow(npage uintptr) bool {
+	// 所需内存大小 B
 	ask := npage << _PageShift
 	v, size := h.sysAlloc(ask)
 	if v == nil {
