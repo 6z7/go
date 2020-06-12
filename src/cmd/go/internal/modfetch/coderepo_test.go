@@ -336,16 +336,6 @@ var codeRepoTests = []codeRepoTest{
 	},
 	{
 		vcs:     "git",
-		path:    "gopkg.in/yaml.v2",
-		rev:     "v2",
-		version: "v2.2.3-0.20190319135612-7b8349ac747c",
-		name:    "7b8349ac747c6a24702b762d2c4fd9266cf4f1d6",
-		short:   "7b8349ac747c",
-		time:    time.Date(2019, 03, 19, 13, 56, 12, 0, time.UTC),
-		gomod:   "module \"gopkg.in/yaml.v2\"\n\nrequire (\n\t\"gopkg.in/check.v1\" v0.0.0-20161208181325-20d25e280405\n)\n",
-	},
-	{
-		vcs:     "git",
 		path:    "vcs-test.golang.org/go/mod/gitrepo1",
 		rev:     "master",
 		version: "v1.2.4-annotated",

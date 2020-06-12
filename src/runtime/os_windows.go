@@ -262,7 +262,9 @@ func loadOptionalSyscalls() {
 }
 
 func monitorSuspendResume() {
-	const _DEVICE_NOTIFY_CALLBACK = 2
+	const (
+		_DEVICE_NOTIFY_CALLBACK = 2
+	)
 	type _DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS struct {
 		callback uintptr
 		context  uintptr
@@ -277,24 +279,19 @@ func monitorSuspendResume() {
 		return // Running on Windows 7, where we don't need it anyway.
 	}
 	var fn interface{} = func(context uintptr, changeType uint32, setting uintptr) uintptr {
-		lock(&allglock)
-		for _, gp := range allgs {
-			if gp.m != nil && gp.m.resumesema != 0 {
-				stdcall1(_SetEvent, gp.m.resumesema)
+		for mp := (*m)(atomic.Loadp(unsafe.Pointer(&allm))); mp != nil; mp = mp.alllink {
+			if mp.resumesema != 0 {
+				stdcall1(_SetEvent, mp.resumesema)
 			}
 		}
-		unlock(&allglock)
 		return 0
 	}
 	params := _DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS{
 		callback: compileCallback(*efaceOf(&fn), true),
 	}
 	handle := uintptr(0)
-	if stdcall3(powerRegisterSuspendResumeNotification, _DEVICE_NOTIFY_CALLBACK,
-		uintptr(unsafe.Pointer(&params)),
-		uintptr(unsafe.Pointer(&handle))) != 0 {
-		throw("PowerRegisterSuspendResumeNotification failure")
-	}
+	stdcall3(powerRegisterSuspendResumeNotification, _DEVICE_NOTIFY_CALLBACK,
+		uintptr(unsafe.Pointer(&params)), uintptr(unsafe.Pointer(&handle)))
 }
 
 //go:nosplit
@@ -415,6 +412,8 @@ func osinit() {
 	// In such context dynamic priority boosting does nothing but harm, so we turn it off.
 	stdcall2(_SetProcessPriorityBoost, currentProcess, 1)
 }
+
+func nanotime() int64
 
 // useQPCTime controls whether time.now and nanotime use QueryPerformanceCounter.
 // This is only set to 1 when running under Wine.
@@ -540,12 +539,8 @@ func exit(code int32) {
 	stdcall1(_ExitProcess, uintptr(code))
 }
 
-// write1 must be nosplit because it's used as a last resort in
-// functions like badmorestackg0. In such cases, we'll always take the
-// ASCII path.
-//
 //go:nosplit
-func write1(fd uintptr, buf unsafe.Pointer, n int32) int32 {
+func write(fd uintptr, buf unsafe.Pointer, n int32) int32 {
 	const (
 		_STD_OUTPUT_HANDLE = ^uintptr(10) // -11
 		_STD_ERROR_HANDLE  = ^uintptr(11) // -12
@@ -641,9 +636,6 @@ func writeConsoleUTF16(handle uintptr, b []uint16) {
 	)
 	return
 }
-
-// walltime1 isn't implemented on Windows, but will never be called.
-func walltime1() (sec int64, nsec int32)
 
 //go:nosplit
 func semasleep(ns int64) int32 {
@@ -775,7 +767,7 @@ func newosproc(mp *m) {
 func newosproc0(mp *m, stk unsafe.Pointer) {
 	// TODO: this is completely broken. The args passed to newosproc0 (in asm_amd64.s)
 	// are stacksize and function, not *m and stack.
-	// Check os_linux.go for an implementation that might actually work.
+	// Check os_linux.go for an implemention that might actually work.
 	throw("bad newosproc0")
 }
 
@@ -964,8 +956,6 @@ func ctrlhandler1(_type uint32) uint32 {
 	switch _type {
 	case _CTRL_C_EVENT, _CTRL_BREAK_EVENT:
 		s = _SIGINT
-	case _CTRL_CLOSE_EVENT, _CTRL_LOGOFF_EVENT, _CTRL_SHUTDOWN_EVENT:
-		s = _SIGTERM
 	default:
 		return 0
 	}

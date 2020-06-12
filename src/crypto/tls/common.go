@@ -792,6 +792,10 @@ var supportedVersions = []uint16{
 func (c *Config) supportedVersions() []uint16 {
 	versions := make([]uint16, 0, len(supportedVersions))
 	for _, v := range supportedVersions {
+		// TLS 1.0 is the default minimum version.
+		if (c == nil || c.MinVersion == 0) && v < VersionTLS10 {
+			continue
+		}
 		if c != nil && c.MinVersion != 0 && v < c.MinVersion {
 			continue
 		}

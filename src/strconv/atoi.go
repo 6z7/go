@@ -58,7 +58,7 @@ const maxUint64 = 1<<64 - 1
 func ParseUint(s string, base int, bitSize int) (uint64, error) {
 	const fnParseUint = "ParseUint"
 
-	if s == "" {
+	if s == "" || !underscoreOK(s) {
 		return 0, syntaxError(fnParseUint, s)
 	}
 
@@ -113,13 +113,12 @@ func ParseUint(s string, base int, bitSize int) (uint64, error) {
 
 	maxVal := uint64(1)<<uint(bitSize) - 1
 
-	underscores := false
 	var n uint64
 	for _, c := range []byte(s) {
 		var d byte
 		switch {
 		case c == '_' && base0:
-			underscores = true
+			// underscoreOK already called
 			continue
 		case '0' <= c && c <= '9':
 			d = c - '0'
@@ -147,20 +146,17 @@ func ParseUint(s string, base int, bitSize int) (uint64, error) {
 		n = n1
 	}
 
-	if underscores && !underscoreOK(s0) {
-		return 0, syntaxError(fnParseUint, s0)
-	}
-
 	return n, nil
 }
 
 // ParseInt interprets a string s in the given base (0, 2 to 36) and
 // bit size (0 to 64) and returns the corresponding value i.
 //
-// If the base argument is 0, the true base is implied by the string's
-// prefix: 2 for "0b", 8 for "0" or "0o", 16 for "0x", and 10 otherwise.
-// Also, for argument base 0 only, underscore characters are permitted
-// as defined by the Go syntax for integer literals.
+// If base == 0, the base is implied by the string's prefix:
+// base 2 for "0b", base 8 for "0" or "0o", base 16 for "0x",
+// and base 10 otherwise. Also, for base == 0 only, underscore
+// characters are permitted per the Go integer literal syntax.
+// If base is below 0, is 1, or is above 36, an error is returned.
 //
 // The bitSize argument specifies the integer type
 // that the result must fit into. Bit sizes 0, 8, 16, 32, and 64

@@ -2927,16 +2927,17 @@ func (srv *Server) Serve(l net.Listener) error {
 			}
 			return e
 		}
+		connCtx := ctx
 		if cc := srv.ConnContext; cc != nil {
-			ctx = cc(ctx, rw)
-			if ctx == nil {
+			connCtx = cc(connCtx, rw)
+			if connCtx == nil {
 				panic("ConnContext returned nil")
 			}
 		}
 		tempDelay = 0
 		c := srv.newConn(rw)
 		c.setState(c.rwc, StateNew) // before Serve can return
-		go c.serve(ctx)
+		go c.serve(connCtx)
 	}
 }
 
@@ -3279,7 +3280,6 @@ type timeoutWriter struct {
 }
 
 var _ Pusher = (*timeoutWriter)(nil)
-var _ Flusher = (*timeoutWriter)(nil)
 
 // Push implements the Pusher interface.
 func (tw *timeoutWriter) Push(target string, opts *PushOptions) error {
@@ -3287,14 +3287,6 @@ func (tw *timeoutWriter) Push(target string, opts *PushOptions) error {
 		return pusher.Push(target, opts)
 	}
 	return ErrNotSupported
-}
-
-// Flush implements the Flusher interface.
-func (tw *timeoutWriter) Flush() {
-	f, ok := tw.w.(Flusher)
-	if ok {
-		f.Flush()
-	}
 }
 
 func (tw *timeoutWriter) Header() Header { return tw.h }
