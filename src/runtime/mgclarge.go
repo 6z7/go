@@ -49,9 +49,13 @@ type treapNode struct {
 	right    *treapNode      // all treapNodes > this treap node
 	left     *treapNode      // all treapNodes < this treap node
 	parent   *treapNode      // direct parent of this node, nil if root
+	// span的起始地址
 	key      uintptr         // base address of the span, used as primary sort key
+	// span
 	span     *mspan          // span at base address key
+	// 最大页数 等于直接子节点的span上的page之和
 	maxPages uintptr         // the maximum size of any span in this subtree, including the root
+	// 优先级
 	priority uint32          // random number used by treap algorithm to keep tree probabilistically balanced
 	types    treapIterFilter // the types of spans available in this subtree
 }
@@ -450,11 +454,13 @@ func (root *mTreap) insert(span *mspan) {
 
 	// Update the tree to maintain the various invariants.
 	i := t
+	// 更新子节点信息到父节点上 不断向上传递
 	for i.parent != nil && i.parent.updateInvariants() {
 		i = i.parent
 	}
 
 	// Rotate up into tree according to priority.
+	// 按优先级向上旋转成树
 	for t.parent != nil && t.parent.priority > t.priority {
 		if t != nil && t.span.base() != t.key {
 			println("runtime: insert t=", t, "t.key=", t.key)
@@ -528,6 +534,7 @@ func (root *mTreap) removeNode(t *treapNode) {
 // reached immediately at the root, since neither the left subtree nor
 // the right subtree will have a sufficient maxPages, whilst the root
 // node is also unable to satisfy it.
+// 遍历heap上的空闲span,尝试找到页数满足需要的span
 func (root *mTreap) find(npages uintptr) treapIter {
 	t := root.treap
 	for t != nil {
@@ -574,6 +581,7 @@ func (root *mTreap) removeSpan(span *mspan) {
 // iterator. This operation consumes the given iterator, so it should no
 // longer be used. It is up to the caller to get the next or previous
 // iterator before calling erase, if need be.
+// 从空闲树中移除
 func (root *mTreap) erase(i treapIter) {
 	root.removeNode(i.t)
 }

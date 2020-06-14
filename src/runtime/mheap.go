@@ -33,7 +33,7 @@ type mheap struct {
 	// lock must only be acquired on the system stack, otherwise a g
 	// could self-deadlock if its stack grows with the lock held.
 	lock      mutex
-	// 空闲的span
+	// 空闲的span构成的树
 	free      mTreap // free spans
 	// 垃圾回收所处的阶段
 	sweepgen  uint32 // sweep generation, see comment in mspan
@@ -160,6 +160,9 @@ type mheap struct {
 	// platforms (even 64-bit), arenaL1Bits is 0, making this
 	// effectively a single-level map. In this case, arenas[0]
 	// will never be nil.
+	// arenas [1 << 0]*[1 << 22]*heapArena
+	// 根据分配的内存地址是64MB的多少倍数，确定数组的的索引
+	// 所以最大内存空间为  2^22 * 64MB=256TB
 	arenas [1 << arenaL1Bits]*[1 << arenaL2Bits]*heapArena
 
 	// heapArenaAlloc is pre-reserved space for allocating heapArena
@@ -184,6 +187,7 @@ type mheap struct {
 	// append-only and old backing arrays are never freed, it is
 	// safe to acquire mheap_.lock, copy the slice header, and
 	// then release mheap_.lock.
+	// 所有的areaIndex
 	allArenas []arenaIdx
 
 	// sweepArenas is a snapshot of allArenas taken at the
@@ -193,7 +197,10 @@ type mheap struct {
 
 	// curArena is the arena that the heap is currently growing
 	// into. This should always be physPageSize-aligned.
+	// 当前在堆上分配内存正在使用的使用的arena
 	curArena struct {
+		// base: 起始地址  end:结束地址
+		// base随着使用不断调整
 		base, end uintptr
 	}
 
@@ -204,6 +211,7 @@ type mheap struct {
 	// spaced CacheLinePadSize bytes apart, so that each mcentral.lock
 	// gets its own cache line.
 	// central is indexed by spanClass.
+	// 不同种类的span数组 维护空闲的内存
 	central [numSpanClasses]struct {
 		mcentral mcentral
 		// 防止伪共享
@@ -251,6 +259,7 @@ type heapArena struct {
 	// known to contain in-use or stack spans. This means there
 	// must not be a safe-point between establishing that an
 	// address is live and looking it up in the spans array.
+	// arena分割成的span数组
 	spans [pagesPerArena]*mspan
 
 	// pageInUse is a bitmap that indicates which spans are in
@@ -259,6 +268,8 @@ type heapArena struct {
 	// span is used.
 	//
 	// Writes are protected by mheap_.lock.
+	// pagesPerArena / 8=每个页用一个bit就够了
+	// 标记span是否在使用
 	pageInUse [pagesPerArena / 8]uint8
 
 	// pageMarks is a bitmap that indicates which spans have any
@@ -282,8 +293,13 @@ type heapArena struct {
 //
 //go:notinheap
 type arenaHint struct {
+	// 分配arena的地址
 	addr uintptr
+	// 是否能向下扩展
+	// 1.初始化时创建的arenaHint不能向下扩展
+	// 2.sysAlloc时创建的arenaHint可以向下扩展
 	down bool
+	// 下一个hint
 	next *arenaHint
 }
 
@@ -345,8 +361,9 @@ type mspan struct {
 	next *mspan     // next span in list, or nil if none
 	prev *mspan     // previous span in list, or nil if none
 	list *mSpanList // For debugging. TODO: Remove.
-
+    // span起始地址
 	startAddr uintptr // address of first byte of span aka s.base()
+	// span包含几个页
 	npages    uintptr // number of pages in span
 
 	manualFreeList gclinkptr // list of free objects in mSpanManual spans
@@ -369,6 +386,7 @@ type mspan struct {
 	freeindex uintptr
 	// TODO: Look up nelems from sizeclass and remove this field if it
 	// helps performance.
+	// span包含几个对象
 	nelems uintptr // number of object in the span.
 
 	// Cache of the allocBits at freeindex. allocCache is shifted
@@ -416,13 +434,18 @@ type mspan struct {
 	divMul      uint16     // for divide by elemsize - divMagic.mul
 	baseMask    uint16     // if non-0, elemsize is a power of 2, & this will get object allocation base
 	allocCount  uint16     // number of allocated objects
+	// 使用当前span的 spanclass
 	spanclass   spanClass  // size class and noscan (uint8)
 	state       mSpanState // mspaninuse etc
+	// 使用之前是否需要清零
 	needzero    uint8      // needs to be zeroed before allocation
 	divShift    uint8      // for divide by elemsize - divMagic.shift
 	divShift2   uint8      // for divide by elemsize - divMagic.shift2
+	// 当前span是否已经在arena上分配
 	scavenged   bool       // whether this span has had its pages released to the OS
+    // 使用当前span的对象的大小，如果是大对象，则为当前span拥有的页的大小
 	elemsize    uintptr    // computed from sizeclass or from npages
+	// span的结束位置
 	limit       uintptr    // end of data in span
 	speciallock mutex      // guards specials list
 	specials    *special   // linked list of special records sorted by offset.
@@ -433,7 +456,9 @@ func (s *mspan) base() uintptr {
 }
 
 func (s *mspan) layout() (size, n, total uintptr) {
+	// span大小
 	total = s.npages << _PageShift
+	// sapn分配给了哪个siaze class
 	size = s.elemsize
 	if size > 0 {
 		n = total / size
@@ -608,6 +633,7 @@ func (s *mspan) scavenge() uintptr {
 
 // released returns the number of bytes in this span
 // which were returned back to the OS.
+// span释放返回os的内存大小
 func (s *mspan) released() uintptr {
 	if !s.scavenged {
 		return 0
@@ -671,6 +697,7 @@ type spanClass uint8
 
 const (
 	// 67<<1
+	// span有67种，span分为2类，包含指针的和不包含指针的 所以span的数量需要2倍的sizeClass数量
 	numSpanClasses = _NumSizeClasses << 1
 	tinySpanClass  = spanClass(tinySizeClass<<1 | 1)
 )
@@ -700,6 +727,9 @@ func (sc spanClass) noscan() bool {
 // It is nosplit because it's called by spanOf and several other
 // nosplit functions.
 //
+// 计算地址在mheap_.arenas数组中的索引
+// 分配的内存地址属于哪个arena
+// 每个arena是64MB
 //go:nosplit
 func arenaIndex(p uintptr) arenaIdx {
 	return arenaIdx((p + arenaBaseOffset) / heapArenaBytes)
@@ -853,6 +883,7 @@ func (h *mheap) init() {
 	// from improperly cas'ing it from 0.
 	//
 	// This is safe because mspan contains no heap pointers.
+	// TODO
 	h.spanalloc.zero = false
 
 	// h->mapcache needs no init
@@ -1042,6 +1073,7 @@ func (h *mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
 	memstats.tinyallocs += uint64(_g_.m.mcache.local_tinyallocs)
 	_g_.m.mcache.local_tinyallocs = 0
 
+	// 从heap上分配内存
 	s := h.allocSpanLocked(npage, &memstats.heap_inuse)
 	if s != nil {
 		// Record span info, because gc needs to be
@@ -1107,7 +1139,7 @@ func (h *mheap) alloc_m(npage uintptr, spanclass spanClass, large bool) *mspan {
 // size class and scannability.
 //
 // If needzero is true, the memory for the returned span will be zeroed.
-//
+// 从heap上分配内存，并根据清空进行清零处理
 func (h *mheap) alloc(npage uintptr, spanclass spanClass, large bool, needzero bool) *mspan {
 	// Don't do any operations that lock the heap on the G stack.
 	// It might trigger stack growth, and the stack growth code needs
@@ -1169,9 +1201,11 @@ func (h *mheap) setSpan(base uintptr, s *mspan) {
 
 // setSpans modifies the span map so [spanOf(base), spanOf(base+npage*pageSize))
 // is s.
+// 根据地址计算所属于的arena,将arena上的npage页关联到mspan
 func (h *mheap) setSpans(base, npage uintptr, s *mspan) {
 	p := base / pageSize
 	ai := arenaIndex(base)
+	// 获取地址所属于的heapArena
 	ha := h.arenas[ai.l1()][ai.l2()]
 	for n := uintptr(0); n < npage; n++ {
 		i := (p + n) % pagesPerArena
@@ -1179,6 +1213,7 @@ func (h *mheap) setSpans(base, npage uintptr, s *mspan) {
 			ai = arenaIndex(base + n*pageSize)
 			ha = h.arenas[ai.l1()][ai.l2()]
 		}
+		// mspan在arena.spans数组上所属位置
 		ha.spans[i] = s
 	}
 }
@@ -1186,11 +1221,20 @@ func (h *mheap) setSpans(base, npage uintptr, s *mspan) {
 // Allocates a span of the given size.  h must be locked.
 // The returned span has been removed from the
 // free structures, but its state is still mSpanFree.
+// 获取满足指定页数的span
+// 1.遍历heap.free 尝试找页数大于等于npage的span
+// 2. 如果为找到则走扩容流程
+//      a. 如果当前heap.curArena剩余空间满足则从当前arenas上的npage空间转为span，加入heap.free
+//      b. 反之，则从os上申请最小64MB的空间，并转为span，加入heap.free
+// 3. 重新遍历heap.free 找到合适的span
+// 4. 如果找到的span正合适，则从h.free中移除，返回则将span分割，并并更新heap上arena
 func (h *mheap) allocSpanLocked(npage uintptr, stat *uint64) *mspan {
+	// 遍历heap上的空闲span,尝试找到页数满足需要的span
 	t := h.free.find(npage)
 	if t.valid() {
 		goto HaveSpan
 	}
+	// 从heap上分配内存转为span
 	if !h.grow(npage) {
 		return nil
 	}
@@ -1209,20 +1253,29 @@ HaveSpan:
 	// First, subtract any memory that was released back to
 	// the OS from s. We will add back what's left if necessary.
 	memstats.heap_released -= uint64(s.released())
-
+    // span的页数正好
 	if s.npages == npage {
+		// 从空闲树中移除
 		h.free.erase(t)
-	} else if s.npages > npage {
+	} else if s.npages > npage {  //span的页数多数实际需要
 		// Trim off the lower bits and make that our new span.
 		// Do this in-place since this operation does not
 		// affect the original span's location in the treap.
 		n := (*mspan)(h.spanalloc.alloc())
+		// 更新heap.free中的span节点
+		// 更新heap.arenas中的span
 		h.free.mutate(t, func(s *mspan) {
 			n.init(s.base(), npage)
 			s.npages -= npage
+			// 修改地址
 			s.startAddr = s.base() + npage*pageSize
+			// 新的span将占据span的位置
+			// s.base()=s.startAddr = s.base() + npage*pageSize
+			//  [s.base() ,s.base() + npage*pageSize-1]
 			h.setSpan(s.base()-1, n)
+			// 更新旧的span在heap.arena上的位置
 			h.setSpan(s.base(), s)
+			// 新的span将占据span的位置
 			h.setSpan(n.base(), n)
 			n.needzero = s.needzero
 			// n may not be big enough to actually be scavenged, but that's fine.
@@ -1253,6 +1306,7 @@ HaveSpan:
 		s.scavenged = false
 	}
 
+	// 计算span在对应的arena上所占范围
 	h.setSpans(s.base(), npage, s)
 
 	*stat += uint64(npage << _PageShift)
@@ -1268,21 +1322,24 @@ HaveSpan:
 // returning whether it worked.
 //
 // h must be locked.
+// 从os申请n页的内存，并将这些内存转为span
 func (h *mheap) grow(npage uintptr) bool {
 	// 所需内存大小 B
 	ask := npage << _PageShift
-
+    // 对齐后需要的内存大小
 	nBase := round(h.curArena.base+ask, physPageSize)
+	// arena已经使用完，需要从os获取新的内存
 	if nBase > h.curArena.end {
 		// Not enough room in the current arena. Allocate more
 		// arena space. This may not be contiguous with the
 		// current arena, so we have to request the full ask.
+		// av:分配内存起始地址  asize:对齐后的内存大小
 		av, asize := h.sysAlloc(ask)
 		if av == nil {
 			print("runtime: out of memory: cannot allocate ", ask, "-byte block (", memstats.heap_sys, " in use)\n")
 			return false
 		}
-
+        //新分配的空间与旧的相邻,则直接扩大旧的空间
 		if uintptr(av) == h.curArena.end {
 			// The new space is contiguous with the old
 			// space, so just extend the current space.
@@ -1291,6 +1348,7 @@ func (h *mheap) grow(npage uintptr) bool {
 			// The new space is discontiguous. Track what
 			// remains of the current space and switch to
 			// the new space. This should be rare.
+			// 剩余的空间转为span
 			if size := h.curArena.end - h.curArena.base; size != 0 {
 				h.growAddSpan(unsafe.Pointer(h.curArena.base), size)
 			}
@@ -1312,6 +1370,7 @@ func (h *mheap) grow(npage uintptr) bool {
 		memstats.heap_idle += uint64(asize)
 
 		// Recalculate nBase
+		// 对齐
 		nBase = round(h.curArena.base+ask, physPageSize)
 	}
 
@@ -1326,6 +1385,7 @@ func (h *mheap) grow(npage uintptr) bool {
 // This memory must be in the Prepared state (not Ready).
 //
 // h must be locked.
+// 将获取到的内存转为spam,并将span保存到mheap.free树上
 func (h *mheap) growAddSpan(v unsafe.Pointer, size uintptr) {
 	// Scavenge some pages to make up for the virtual memory space
 	// we just allocated, but only if we need to.
@@ -1333,6 +1393,7 @@ func (h *mheap) growAddSpan(v unsafe.Pointer, size uintptr) {
 
 	s := (*mspan)(h.spanalloc.alloc())
 	s.init(uintptr(v), size/pageSize)
+	// 在arena上分配mspan
 	h.setSpans(s.base(), s.npages, s)
 	s.state = mSpanFree
 	// [v, v+size) is always in the Prepared state. The new span
@@ -1342,6 +1403,7 @@ func (h *mheap) growAddSpan(v unsafe.Pointer, size uintptr) {
 	// This span is both released and idle, but grow already
 	// updated both memstats.
 	h.coalesce(s)
+	// 保存空闲的span
 	h.free.insert(s)
 }
 
@@ -1572,6 +1634,9 @@ func runtime_debug_freeOSMemory() {
 }
 
 // Initialize a new span with the given start and npages.
+// 初始化mspan
+// base:起始地址
+// npages:页数
 func (span *mspan) init(base uintptr, npages uintptr) {
 	// span is *not* zeroed.
 	span.next = nil

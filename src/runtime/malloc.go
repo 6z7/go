@@ -165,6 +165,7 @@ const (
 	maxSmallSize  = _MaxSmallSize
 
 	pageShift = _PageShift
+	// go页大小 8kb
 	pageSize  = _PageSize
 	pageMask  = _PageMask
 	// By construction, single page spans of the smallest object class
@@ -257,6 +258,7 @@ const (
 	// we further limit it to 31 bits.
 	//
 	// WebAssembly currently has a limit of 4GB linear memory.
+	// 48 b
 	heapAddrBits = (_64bit*(1-sys.GoarchWasm)*(1-sys.GoosAix))*48 + (1-_64bit+sys.GoarchWasm)*(32-(sys.GoarchMips+sys.GoarchMipsle)) + 60*sys.GoosAix
 
 	// maxAlloc is the maximum size of an allocation. On 64-bit,
@@ -295,7 +297,7 @@ const (
 	// memory.
 	// 堆上的arena大小，64位非windows机器64MB,32位windows机器4MB
 	// 在从堆上分配内存时，每次获取的都是64MB的整数倍
-	// 2^26
+	// 2^26  =64MB
 	heapArenaBytes = 1 << logHeapArenaBytes
 
 	// logHeapArenaBytes is log_2 of heapArenaBytes. For clarity,
@@ -309,6 +311,8 @@ const (
 	// TODO:为什么除2
 	heapArenaBitmapBytes = heapArenaBytes / (sys.PtrSize * 8 / 2)
 
+	// 每个arena包含 64MB/8kb=8192个页
+	// go的页大小是8kb
 	pagesPerArena = heapArenaBytes / pageSize
 
 	// arenaL1Bits is the number of bits of the arena number
@@ -327,6 +331,7 @@ const (
 	//
 	// We use the L1 map on aix/ppc64 to keep the same L2 value
 	// as on Linux.
+	// 0
 	arenaL1Bits = 6*(_64bit*sys.GoosWindows) + 12*sys.GoosAix
 
 	// arenaL2Bits is the number of bits of the arena number
@@ -336,6 +341,7 @@ const (
 	// 1<<arenaL2Bits, so it's important that this not be too
 	// large. 48 bits leads to 32MB arena index allocations, which
 	// is about the practical threshold.
+	// 22 =48-26-0
 	arenaL2Bits = heapAddrBits - logHeapArenaBytes - arenaL1Bits
 
 	// arenaL1Shift is the number of bits to shift an arena frame
@@ -345,6 +351,7 @@ const (
 	// arenaBits is the total bits in a combined arena map index.
 	// This is split between the index into the L1 arena map and
 	// the L2 arena map.
+	// 22 =0+22
 	arenaBits = arenaL1Bits + arenaL2Bits
 
 	// arenaBaseOffset is the pointer value that corresponds to
@@ -592,7 +599,6 @@ func mallocinit() {
 			default:
 				p = uintptr(i)<<40 | uintptrMask&(0x00c0<<32)
 			}
-			// TODO arenaHint??
 			hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
 			hint.addr = p
 			hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
@@ -676,6 +682,11 @@ func mallocinit() {
 // be transitioned to Ready before use.
 //
 // h must be locked.
+// 从os上分配指定大小的内存：
+// 1.先遍历arenaHit
+// 2.从os上分配内存
+// 每次分配的内存都是64MB的正数倍
+// 内存转为arena保存到heap上
 func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 	// 堆上每次开辟64MB的整数倍
 	n = round(n, heapArenaBytes)
@@ -701,6 +712,7 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 			// Outside addressable heap. Can't use.
 			v = nil
 		} else {
+			// 从p位置预分配n字节
 			v = sysReserve(unsafe.Pointer(p), n)
 		}
 		if p == uintptr(v) {
@@ -718,9 +730,11 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 		// told to only return the requested address. In
 		// particular, this is already how Windows behaves, so
 		// it would simplify things there.
+		// 预占用的内存 没有使用释放
 		if v != nil {
 			sysFree(v, n, nil)
 		}
+		// hint已经无法使用释放
 		h.arenaHints = hint.next
 		h.arenaHintAlloc.free(unsafe.Pointer(hint))
 	}
@@ -737,6 +751,7 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 		// All of the hints failed, so we'll take any
 		// (sufficiently aligned) address the kernel will give
 		// us.
+		// v:预占的内存地址   size:实际分配的内存大小
 		v, size = sysReserveAligned(nil, n, heapArenaBytes)
 		if v == nil {
 			return nil, 0
@@ -775,14 +790,17 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 	}
 
 	// Transition from Reserved to Prepared.
+	// 将预占用的虚拟内存转为可用的虚拟内存
 	sysMap(v, size, &memstats.heap_sys)
 
 mapped:
 	// Create arena metadata.
 	for ri := arenaIndex(uintptr(v)); ri <= arenaIndex(uintptr(v)+size-1); ri++ {
 		l2 := h.arenas[ri.l1()]
+		// 创建[1 << 22]*heapArena 数组
 		if l2 == nil {
 			// Allocate an L2 arena map.
+			// 分配持久内存heapArena
 			l2 = (*[1 << arenaL2Bits]*heapArena)(persistentalloc(unsafe.Sizeof(*l2), sys.PtrSize, nil))
 			if l2 == nil {
 				throw("out of memory allocating heap arena map")
@@ -803,6 +821,7 @@ mapped:
 		}
 
 		// Add the arena to the arenas list.
+		//
 		if len(h.allArenas) == cap(h.allArenas) {
 			size := 2 * uintptr(cap(h.allArenas)) * sys.PtrSize
 			if size == 0 {
@@ -841,6 +860,8 @@ mapped:
 // sysReserveAligned is like sysReserve, but the returned pointer is
 // aligned to align bytes. It may reserve either n or n+align bytes,
 // so it returns the size that was reserved.
+// 从os上预占内存
+// 返回对齐后的内存地址
 func sysReserveAligned(v unsafe.Pointer, size, align uintptr) (unsafe.Pointer, uintptr) {
 	// Since the alignment is rather large in uses of this
 	// function, we're not likely to get it by chance, so we ask
@@ -876,6 +897,7 @@ retry:
 	default:
 		// Trim off the unaligned parts.
 		pAligned := round(p, align)
+		// 释放由于要进行对齐开辟的多余内存
 		sysFree(unsafe.Pointer(p), pAligned-p, nil)
 		end := pAligned + size
 		endLen := (p + size + align) - end
@@ -1481,9 +1503,10 @@ func inPersistentAlloc(p uintptr) bool {
 // of memory and then maps that region into the Ready state as needed. The
 // caller is responsible for locking.
 type linearAlloc struct {
-	// 剩余可以用字节
+	// 剩余可以用内存
 	next   uintptr // next free byte
 	mapped uintptr // one byte past end of mapped space
+	//
 	end    uintptr // end of reserved space
 }
 
@@ -1498,7 +1521,7 @@ func (l *linearAlloc) init(base, size uintptr) {
 func (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsafe.Pointer {
 	// 分配algin的整数倍
 	p := round(l.next, align)
-	// 剩余空间不足
+	// arena空间不足
 	if p+size > l.end {
 		return nil
 	}

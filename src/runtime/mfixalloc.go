@@ -32,6 +32,7 @@ type fixalloc struct {
 	first  func(arg, p unsafe.Pointer) // called first time p is returned
 	// 回调函数的参数
 	arg    unsafe.Pointer
+	// 释放的对象构成的空闲链表
 	list   *mlink
 	// 分配内存的起始地址
 	// 每次分配过都会调整指定大小
@@ -43,7 +44,7 @@ type fixalloc struct {
 	// 统计分配的内存
 	// 不通的分配器对应不同的统计字段
 	stat   *uint64
-	// 指针指向的内存是否不包含指针数据
+	// 是否需要清零
 	zero   bool // zero allocations
 }
 
@@ -85,6 +86,7 @@ func (f *fixalloc) alloc() unsafe.Pointer {
 		throw("runtime: internal error")
 	}
 
+	// 存在被释放的空闲内存
 	if f.list != nil {
 		v := unsafe.Pointer(f.list)
 		f.list = f.list.next
@@ -114,6 +116,7 @@ func (f *fixalloc) alloc() unsafe.Pointer {
 	return v
 }
 
+// 释放的内存放入空闲链表的头部
 func (f *fixalloc) free(p unsafe.Pointer) {
 	f.inuse -= f.size
 	v := (*mlink)(p)

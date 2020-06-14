@@ -156,7 +156,9 @@ func sysFault(v unsafe.Pointer, n uintptr) {
 	mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE|_MAP_FIXED, -1, 0)
 }
 
+// 从指定地址预分配n字节内存
 func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
+	// _PROT_NONE：开辟的内存区域不可读写
 	p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 	if err != 0 {
 		return nil
@@ -164,6 +166,7 @@ func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
 	return p
 }
 
+// 将预占用的虚拟内存转为可用的虚拟内存
 func sysMap(v unsafe.Pointer, n uintptr, sysStat *uint64) {
 	mSysStatInc(sysStat, n)
 
