@@ -25,9 +25,9 @@ type mcentral struct {
 	// 通过对象的size计算而来
 	// 对象size-->size class-->spanClass
 	spanclass spanClass
-	// 空闲链表
+	//
 	nonempty  mSpanList // list of spans with a free object, ie a nonempty free list
-	// 非空闲链表()
+	// 空闲span链表
 	empty     mSpanList // list of spans with no free objects (or cached in an mcache)
 
 	// nmalloc is the cumulative count of objects allocated from
@@ -45,6 +45,8 @@ func (c *mcentral) init(spc spanClass) {
 
 // Allocate a span to use in an mcache.
 // 分配一个给mcache用的span
+// 1. 从mcentral分配span
+// 2. 如果mcentral上不满足则从heap上获取
 func (c *mcentral) cacheSpan() *mspan {
 	// Deduct credit for this span allocation and sweep if necessary.
 	// span需要的页大小
@@ -126,6 +128,7 @@ havespan:
 	if trace.enabled && !traceDone {
 		traceGCSweepDone()
 	}
+	// span能放几个对象
 	n := int(s.nelems) - int(s.allocCount)
 	if n == 0 || s.freeindex == s.nelems || uintptr(s.allocCount) == s.nelems {
 		throw("span has no free objects")
@@ -262,6 +265,7 @@ func (c *mcentral) grow() *mspan {
 	npages := uintptr(class_to_allocnpages[c.spanclass.sizeclass()])
 	size := uintptr(class_to_size[c.spanclass.sizeclass()])
 
+	// 从堆上分配内存
 	s := mheap_.alloc(npages, c.spanclass, false, true)
 	if s == nil {
 		return nil

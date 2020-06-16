@@ -945,6 +945,7 @@ func (c *mcache) nextFree(spc spanClass) (v gclinkptr, s *mspan, shouldhelpgc bo
 	s = c.alloc[spc]
 	shouldhelpgc = false
 	freeIndex := s.nextFreeIndex()
+	// span已经使用完成 从mcentral上
 	if freeIndex == s.nelems {
 		// The span is full.
 		if uintptr(s.allocCount) != s.nelems {

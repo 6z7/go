@@ -386,7 +386,7 @@ type mspan struct {
 	freeindex uintptr
 	// TODO: Look up nelems from sizeclass and remove this field if it
 	// helps performance.
-	// span包含几个对象
+	// 当前span总共能分配多少对象
 	nelems uintptr // number of object in the span.
 
 	// Cache of the allocBits at freeindex. allocCache is shifted
@@ -433,6 +433,7 @@ type mspan struct {
 	sweepgen    uint32
 	divMul      uint16     // for divide by elemsize - divMagic.mul
 	baseMask    uint16     // if non-0, elemsize is a power of 2, & this will get object allocation base
+	// span中已经分配的对象
 	allocCount  uint16     // number of allocated objects
 	// 使用当前span的 spanclass
 	spanclass   spanClass  // size class and noscan (uint8)
