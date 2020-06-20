@@ -621,6 +621,7 @@ type p struct {
 	sysmontick  sysmontick // last tick observed by sysmon
 	//当前p是使用的m
 	m           muintptr   // back-link to associated m (nil if idle)
+	// 创建P时初始化
 	mcache      *mcache
 	raceprocctx uintptr
 

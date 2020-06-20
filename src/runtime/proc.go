@@ -4135,6 +4135,7 @@ func (pp *p) init(id int32) {
 			if getg().m.mcache == nil {
 				throw("missing mcache?")
 			}
+			// m0上的mcache
 			pp.mcache = getg().m.mcache // bootstrap
 		} else {
 			pp.mcache = allocmcache()
